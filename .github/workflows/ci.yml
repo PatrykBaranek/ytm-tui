@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs here only; there is no Mac to test on locally.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      # No network or audio: the UI tests use a fake music source and player.
+      - name: Test
+        run: bun test
+
+      - name: Build
+        run: bun run build
+
+      # The bundle the npm package ships must start; --help needs neither mpv nor yt-dlp.
+      - name: Built CLI starts
+        run: |
+          bun dist/cli.js --version
+          bun dist/cli.js --help

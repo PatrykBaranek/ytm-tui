@@ -1,5 +1,7 @@
 # ytm-tui
 
+[![CI](https://github.com/PatrykBaranek/ytm-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/PatrykBaranek/ytm-tui/actions/workflows/ci.yml)
+
 A small terminal client for YouTube Music: browse playlists by mood and genre, search, play,
 queue, and autoplay similar songs.
 Built with [OpenTUI](https://opentui.com) + React on Bun.
