@@ -6,6 +6,8 @@ A small terminal client for YouTube Music: browse playlists by mood and genre, s
 queue, and autoplay similar songs.
 Built with [OpenTUI](https://opentui.com) + React on Bun.
 
+![ytm-tui: the splash, browsing Chill playlists, a search with suggestions, a song playing with the glow taking its cover's colors, and the key help](docs/demo.gif)
+
 ## Install
 
 Needs [Bun](https://bun.sh) 1.3.14 or newer, plus `mpv` and `yt-dlp` on your PATH. Linux and macOS.
@@ -26,6 +28,7 @@ bun start
 bun test          # UI flow with fake search/player, no network or audio
 bun run typecheck
 bun run build     # bundles src/ into dist/cli.js, the file the package ships
+sh docs/record-demo.sh   # re-records docs/demo.gif (needs vhs and ffmpeg)
 ```
 
 Release: bump `version` in package.json, then `npm publish`. It type-checks, tests and
