@@ -1,18 +1,14 @@
 import { colors } from '../theme';
 
-export function Pane({
-  title,
-  width,
-  height,
-  focused,
-  children,
-}: {
+interface PaneProps {
   title: string;
   width: number;
   height?: number;
   focused: boolean;
   children: React.ReactNode;
-}) {
+}
+
+export function Pane({ title, width, height, focused, children }: PaneProps) {
   return (
     <box
       title={title}

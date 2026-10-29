@@ -8,6 +8,14 @@ export interface ListItem {
   detail: string;
 }
 
+interface ItemListProps {
+  items: ListItem[];
+  selected: number;
+  focused: boolean;
+  rows: number;
+  width: number;
+}
+
 // One row per mood, genre or playlist: a name and muted detail text. Songs use TrackList.
 export function ItemList({
   items,
@@ -15,13 +23,7 @@ export function ItemList({
   focused,
   rows,
   width,
-}: {
-  items: ListItem[];
-  selected: number;
-  focused: boolean;
-  rows: number;
-  width: number;
-}) {
+}: ItemListProps) {
   const first = scrollStart(selected, rows, items.length);
   const rest = Math.max(0, width - 2);
   // Size the name column to the longest name in the whole list, so it doesn't shift while scrolling.

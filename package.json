@@ -23,7 +23,8 @@
   "bugs": "https://github.com/PatrykBaranek/ytm-tui/issues",
   "type": "module",
   "bin": {
-    "ytm-tui": "dist/cli.js"
+    "ytm-tui": "dist/cli.js",
+    "ytm": "dist/cli.js"
   },
   "files": [
     "dist"

@@ -11,21 +11,21 @@ const statusIcon: Record<PlayerState['status'], string> = {
   error: '✕',
 };
 
-export function NowPlaying({
-  track,
-  state,
-  width,
-}: {
+interface NowPlayingProps {
   track: Track | null;
   state: PlayerState;
   width: number;
-}) {
+}
+
+export function NowPlaying({ track, state, width }: NowPlayingProps) {
   const inner = width - 4;
   const left = `${formatTime(state.position)} `;
-  const right = ` ${formatTime(state.duration)}   vol ${state.volume}%`;
+  // Until mpv reports it (or for a song picked up from the last session), use the listed length.
+  const duration = state.duration || track?.duration || 0;
+  const right = ` ${formatTime(duration)}   vol ${state.volume}%`;
   const bar = progressBar(
     state.position,
-    state.duration,
+    duration,
     inner - Bun.stringWidth(left) - Bun.stringWidth(right),
   );
   const subtitle = track

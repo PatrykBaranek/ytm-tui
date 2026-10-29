@@ -10,7 +10,7 @@ Needs [Bun](https://bun.sh) 1.3.14 or newer, plus `mpv` and `yt-dlp` on your PAT
 
 ```bash
 bun add -g ytm-tui      # or: npm i -g ytm-tui (Bun must still be installed)
-ytm-tui
+ytm                     # or the full name, ytm-tui
 
 bunx ytm-tui            # run once without installing
 ```
@@ -32,7 +32,7 @@ builds first (`prepublishOnly`, `prepack`).
 
 | Key | Action |
 |---|---|
-| `/` | Search (enter to run, esc back to the list) |
+| `/` | Search: suggestions appear as you type, recent searches when the box is empty; `↑/↓` picks one, enter runs it, esc goes back to the list |
 | `↑/↓` or `j/k` | Move selection |
 | `enter` | Open a mood, genre or playlist; play a song (in a playlist, the rest of it becomes up next) |
 | `esc` / `backspace` | Back to the previous list |
@@ -46,9 +46,17 @@ builds first (`prepublishOnly`, `prepack`).
 | `←/→` | Seek 10s |
 | `+` / `-` | Volume |
 | `r` | Toggle autoplay (YouTube Music radio when the queue runs out) |
+| `?` | Show every key |
 | `q` / `ctrl+c` | Quit |
 
 Any key skips the splash screen on launch; `YTM_NO_SPLASH=1` turns it off.
+
+## Picking up where you left off
+
+Volume, autoplay, the current song, up next, the last 50 played songs and your last 20 searches are saved to
+`~/.local/state/ytm-tui/session.json` (or `$XDG_STATE_HOME/ytm-tui`). On the next start the last
+song is back in now playing, stopped; space plays it. The songs you played are under
+"Recently played" at the top of browse. Delete the file to start fresh.
 
 ## Browse
 
@@ -61,7 +69,11 @@ in place of the key help.
 
 - `src/services/music.ts`: search, "up next" radio, moods & genres and playlists through [youtubei.js](https://github.com/LuanRT/YouTube.js) (YouTube's internal API, no API key).
 - `src/services/player.ts`: YouTube's stream URLs return 403 when mpv fetches them directly, so yt-dlp downloads
-  the audio and pipes it into mpv. Pause, seek, volume and position go over mpv's JSON IPC socket.
+  the audio into memory (`src/services/download.ts`) and the app feeds it to mpv's stdin. Pause, seek, volume
+  and position go over mpv's JSON IPC socket.
+- Starting a song: yt-dlp normally takes 7-8 seconds before the first byte, nearly all of it setup. It asks as
+  YouTube's visionOS app first, which takes about a second, and falls back to its defaults if YouTube refuses.
+  While a song plays, the next one in up next downloads (a few MB), so it starts right away.
 - `src/app.tsx`: layout, focus and keys; playback rules live in `src/hooks/use-playback.ts`, the list you
   browse (a stack that esc pops) in `src/hooks/use-navigation.ts`, the panels in `src/components/`. `src/index.tsx` makes sure mpv and yt-dlp are killed whenever the app exits.
 

@@ -1,18 +1,15 @@
 import { colors } from '../theme';
 import './logo';
 
-// Shown on launch while YouTube Music connects and the moods & genres list loads.
-export function Splash({
-  width,
-  height,
-  status,
-  leaving,
-}: {
+interface SplashProps {
   width: number;
   height: number;
   status: string;
   leaving: boolean;
-}) {
+}
+
+// Shown on launch while YouTube Music connects and the moods & genres list loads.
+export function Splash({ width, height, status, leaving }: SplashProps) {
   // The big logo is 56 columns by 6 rows; small terminals get a one-line one.
   const compact = width < 60 || height < 12;
   return (

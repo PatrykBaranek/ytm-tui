@@ -18,9 +18,17 @@ function breadcrumb(stack: View[], width: number) {
 const emptyText: Record<View['kind'], string> = {
   categories: 'No moods or genres found.',
   playlists: 'No playlists here.',
-  playlist: 'This playlist is empty.',
+  playlist: 'Nothing here yet.',
   search: 'No songs found.',
 };
+
+interface BrowsePaneProps {
+  stack: View[];
+  focused: boolean;
+  width: number;
+  rows: number;
+  playingId?: string;
+}
 
 // The left pane: whatever view is on top of the navigation stack.
 export function BrowsePane({
@@ -29,13 +37,7 @@ export function BrowsePane({
   width,
   rows,
   playingId,
-}: {
-  stack: View[];
-  focused: boolean;
-  width: number;
-  rows: number;
-  playingId?: string;
-}) {
+}: BrowsePaneProps) {
   const view = stack.at(-1)!;
   const inner = width - 4;
 
