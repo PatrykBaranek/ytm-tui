@@ -13,6 +13,7 @@ bun add -g ytm-tui      # or: npm i -g ytm-tui (Bun must still be installed)
 ytm                     # or the full name, ytm-tui
 
 bunx ytm-tui            # run once without installing
+ytm --help              # options and environment variables
 ```
 
 ## Development

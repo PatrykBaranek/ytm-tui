@@ -12,7 +12,8 @@ playback by piping yt-dlp into mpv. Use Bun, not Node (`bun install`, `bunx`, `b
 
 ## Layout
 
-- `src/index.tsx`: entry; checks dependencies, wires the real services, kills mpv/yt-dlp on exit
+- `src/index.tsx`: entry; handles `--help`/`--version` (`cli.ts`), checks dependencies, wires the
+  real services, kills mpv/yt-dlp on exit
 - `src/app.tsx`: layout, focus, search and keyboard handling
 - `src/services/`: the outside world, no React. `music.ts` (`MusicSource`), `player.ts` (`Player`),
   `download.ts` (one song's audio, via yt-dlp), `store.ts` (the saved session)

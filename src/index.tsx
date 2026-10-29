@@ -1,10 +1,27 @@
 #!/usr/bin/env bun
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
+import packageJson from "../package.json"
 import { App } from "./app"
+import { helpText, parseArgs } from "./cli"
 import { createYouTubeMusic } from "./services/music"
 import { MpvPlayer } from "./services/player"
 import { FileSessionStore } from "./services/store"
+
+// Handled before anything else, so --help and --version work even without mpv or yt-dlp.
+const command = parseArgs(process.argv.slice(2))
+if (command.kind === "help") {
+  console.log(helpText(packageJson.version))
+  process.exit(0)
+}
+if (command.kind === "version") {
+  console.log(packageJson.version)
+  process.exit(0)
+}
+if (command.kind === "error") {
+  console.error(`ytm-tui: ${command.message}. Try ytm --help.`)
+  process.exit(2)
+}
 
 const missing = ["mpv", "yt-dlp"].filter((bin) => !Bun.which(bin))
 if (missing.length > 0) {
