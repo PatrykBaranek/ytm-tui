@@ -1,11 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { errorMessage } from '../lib/util';
-import type {
-  Category,
-  MusicSource,
-  PlaylistInfo,
-  Track,
-} from '../services/music';
+import type { Category, PlaylistInfo, Track } from '../services/music';
 import { useLatestState } from './use-latest-state';
 
 interface Page<Kind extends string, Item> {
@@ -29,10 +24,10 @@ export type View =
 type ItemOf<Kind extends View['kind']> = Extract<View, { kind: Kind }>['items'][number];
 
 // A stack of views: enter opens one on top, esc goes back to the one below with its selection
-// kept. The bottom view, moods & genres, starts loading as soon as the app does.
+// kept. The bottom view, moods & genres from `loadCategories`, starts loading with the app.
 // `notify` receives status messages for the status line.
 export function useNavigation(
-  music: MusicSource,
+  loadCategories: () => Promise<Category[]>,
   notify: (message: string) => void,
 ) {
   const nextId = useRef(1);
@@ -44,7 +39,7 @@ export function useNavigation(
       items: [],
       selected: 0,
       status: 'loading',
-      load: () => music.categories(),
+      load: loadCategories,
     },
   ]);
 

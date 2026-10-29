@@ -4,6 +4,7 @@ import { act } from "react"
 import { App } from "./app"
 import type { Category, MusicSource, PlaylistInfo, Track } from "./services/music"
 import type { Player, PlayerState } from "./services/player"
+import type { SavedSession, SessionStore } from "./services/store"
 
 const track = (id: string, title: string): Track => ({
   id,
@@ -28,10 +29,12 @@ const rockPlaylists: PlaylistInfo[] = [
 ]
 const classics = [track("c1", "First Riff"), track("c2", "Second Riff"), track("c3", "Third Riff"), track("c4", "Fourth Riff")]
 
-// Records which categories and playlists the UI asked for.
+// Records which categories, playlists and searches the UI asked for.
 const opened: string[] = []
+const searched: string[] = []
 const fakeMusic: MusicSource = {
-  search: async () => searchResults,
+  search: async (query) => (searched.push(query), searchResults),
+  suggestions: async (query) => [`${query} live`, `${query} remix`],
   radio: async () => radioResults,
   categories: async () => categories,
   playlists: async (id) => (opened.push(id), id === "rock" ? rockPlaylists : []),
@@ -41,12 +44,16 @@ const fakeMusic: MusicSource = {
 class FakePlayer implements Player {
   state: PlayerState = { status: "idle", position: 0, duration: 0, volume: 80 }
   played: string[] = []
+  prefetched?: string
   private listeners = new Set<() => void>()
   private ended = new Set<() => void>()
 
   play(t: Track) {
     this.played.push(t.id)
     this.set({ status: "playing", position: 0, duration: t.duration })
+  }
+  prefetch(t: Track | undefined) {
+    this.prefetched = t?.id
   }
   togglePause() {
     this.set({ status: this.state.status === "paused" ? "playing" : "paused" })
@@ -108,6 +115,8 @@ test("search, play, queue, then autoplay from radio", async () => {
   frame = await setup.waitForFrame((f) => f.includes("up next · 1"))
   expect(player.played).toEqual(["a1"])
   expect(frame).toContain("▶ Morning Static")
+  // The queued song downloads ahead of time.
+  expect(player.prefetched).toBe("a2")
 
   // When the track ends, the queued song plays next.
   await act(async () => player.finishTrack())
@@ -120,6 +129,7 @@ test("search, play, queue, then autoplay from radio", async () => {
   expect(player.played).toEqual(["a1", "a2", "r1"])
   expect(frame).toContain("up next · 1")
   expect(frame).toContain("1 Radio Pick Two")
+  expect(player.prefetched).toBe("r2")
 
   // Space pauses; "p" right at the start of a track goes back to the previous one.
   await act(async () => {
@@ -138,12 +148,15 @@ test("browse a genre, play a playlist from the middle, then go back", async () =
   })
   const keys = setup.mockInput
 
-  // Moods & genres load on start; the group name labels the first row of each group.
+  // Moods & genres load on start, under "Recently played"; the group name labels the first row
+  // of each group.
   let frame = await setup.waitForFrame((f) => f.includes("Rock"))
+  expect(frame).toMatch(/Recently played +Your music/)
   expect(frame).toMatch(/Chill +Moods & moments/)
   expect(frame).toMatch(/Rock +Genres/)
 
   await act(async () => {
+    keys.pressArrow("down")
     keys.pressArrow("down")
     keys.pressArrow("down")
     keys.pressEnter()
@@ -204,4 +217,98 @@ test("splash shows until the lists load, and any key skips it", async () => {
     await act(async () => Bun.sleep(400))
     await setup.waitForFrame((f) => f.includes("now playing"))
   }
+})
+
+test("? shows every key, and any key closes it", async () => {
+  await using setup = await testRender(<App music={fakeMusic} player={new FakePlayer()} onQuit={() => {}} />, {
+    width: 130,
+    height: 34,
+  })
+  await setup.waitForFrame((f) => f.includes("? keys"))
+  await act(async () => setup.mockInput.pressKey("?"))
+  const frame = await setup.waitForFrame((f) => f.includes("pause / resume"))
+  // Wide enough for both columns side by side.
+  expect(frame).toMatch(/Browse +Playback/)
+  await act(async () => setup.mockInput.pressKey("x"))
+  await setup.waitForFrame((f) => !f.includes("pause / resume"))
+})
+
+test("picks up the last session, saves changes, and lists recently played songs", async () => {
+  const player = new FakePlayer()
+  const saves: SavedSession[] = []
+  const store: SessionStore = {
+    saved: {
+      volume: 55,
+      autoplay: false,
+      current: track("s1", "Saved Song"),
+      queue: [track("s2", "Saved Next")],
+      history: [track("h1", "Older Song"), track("h2", "Old Song")],
+      searches: ["old query"],
+    },
+    save: (session) => saves.push(session),
+  }
+  await using setup = await testRender(<App music={fakeMusic} player={player} onQuit={() => {}} store={store} />, {
+    width: 100,
+    height: 30,
+  })
+  const keys = setup.mockInput
+
+  // The saved song shows as current but waits for space; nothing plays on its own.
+  let frame = await setup.waitForFrame((f) => f.includes("Picked up where you left off"))
+  expect(frame).toContain("■ Saved Song")
+  expect(frame).toContain("up next · 1")
+  expect(frame).toContain("autoplay off")
+  expect(player.played).toEqual([])
+
+  await act(async () => keys.pressKey(" "))
+  expect(player.played).toEqual(["s1"])
+
+  // Recently played: newest first, from the saved history.
+  await act(async () => keys.pressEnter())
+  frame = await setup.waitForFrame((f) => f.includes("Older Song"))
+  expect(frame).toContain("moods & genres › Recently played")
+  expect(frame).toMatch(/Saved Song[\s\S]*Old Song[\s\S]*Older Song/)
+
+  // "r" turns autoplay on, and the change is saved.
+  await act(async () => keys.pressKey("r"))
+  await setup.waitForFrame((f) => f.includes("autoplay on"))
+  expect(saves.at(-1)).toMatchObject({ autoplay: true, current: { id: "s1" }, queue: [{ id: "s2" }] })
+
+  // The search box opens on the saved recent searches.
+  await act(async () => keys.pressKey("/"))
+  frame = await setup.waitForFrame((f) => f.includes("recent searches"))
+  expect(frame).toContain("↺ old query")
+})
+
+test("search suggests completions, and remembers what was searched", async () => {
+  const saves: SavedSession[] = []
+  const store: SessionStore = { saved: null, save: (session) => saves.push(session) }
+  await using setup = await testRender(
+    <App music={fakeMusic} player={new FakePlayer()} onQuit={() => {}} store={store} />,
+    { width: 100, height: 30 },
+  )
+  const keys = setup.mockInput
+  await setup.waitForFrame((f) => f.includes("Chill"))
+  searched.length = 0
+
+  // Suggestions are asked for once typing pauses.
+  await act(async () => keys.pressKey("/"))
+  await act(async () => keys.typeText("mor"))
+  await act(() => Bun.sleep(200))
+  let frame = await setup.waitForFrame((f) => f.includes("mor remix"))
+  expect(frame).toContain("suggestions")
+  expect(frame).toContain("mor live")
+
+  // ↓ highlights the first suggestion; enter searches it instead of the typed text.
+  await act(async () => {
+    keys.pressArrow("down")
+    keys.pressEnter()
+  })
+  await setup.waitForFrame((f) => f.includes('3 songs for "mor live"'))
+  expect(searched).toEqual(["mor live"])
+  expect(saves.at(-1)?.searches).toEqual(["mor live"])
+
+  // Back in the box, it is listed as a recent search.
+  await act(async () => keys.pressKey("/"))
+  frame = await setup.waitForFrame((f) => f.includes("↺ mor live"))
 })

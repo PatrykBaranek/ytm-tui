@@ -12,11 +12,14 @@ playback by piping yt-dlp into mpv. Use Bun, not Node (`bun install`, `bunx`, `b
 
 ## Layout
 
-- `src/index.tsx`: entry; checks dependencies, wires the real services, kills mpv/yt-dlp on exit
+- `src/index.tsx`: entry; handles `--help`/`--version` (`cli.ts`), checks dependencies, wires the
+  real services, kills mpv/yt-dlp on exit
 - `src/app.tsx`: layout, focus, search and keyboard handling
-- `src/services/`: the outside world, no React. `music.ts` (`MusicSource`), `player.ts` (`Player`)
+- `src/services/`: the outside world, no React. `music.ts` (`MusicSource`), `player.ts` (`Player`),
+  `download.ts` (one song's audio, via yt-dlp), `store.ts` (the saved session)
 - `src/hooks/`: `use-playback.ts` holds the queue, history and autoplay rules; `use-navigation.ts`
-  the stack of lists the left pane shows (moods & genres › playlists › songs, or search results)
+  the stack of lists the left pane shows (moods & genres › playlists › songs, or search results);
+  `use-search-suggestions.ts` the list under the search box
 - `src/components/`: panels, plus custom renderables registered with `extend()`: `ambient.ts` (the
   glow) and `logo.ts` (the splash logo)
 - `src/lib/`: pure helpers (`format`, `palette`, `util`); tests sit next to the file they cover
@@ -27,12 +30,17 @@ playback by piping yt-dlp into mpv. Use Bun, not Node (`bun install`, `bunx`, `b
   last render. Several keys can arrive in one stdin chunk and React batches them, so a stale
   closure acts on old state. For the same reason the search input is uncontrolled.
 - Never let mpv open YouTube URLs itself: googlevideo answers 403. yt-dlp writes to stdout
-  (`-o -`) and mpv reads stdin; nothing is written to disk.
+  (`-o -`), `Download` keeps the bytes in memory and feeds mpv's stdin; audio never touches disk.
+  The only file written is the session (`services/store.ts`).
+- yt-dlp's speed depends on which YouTube client it asks as (`ATTEMPTS` in `download.ts`).
+  If starts get slow or fail, time the clients again before changing anything else.
 - Child processes outlive the app unless killed. Every exit path (`q`, ctrl+c, SIGTERM, SIGHUP)
   must reach `player.dispose()`.
 - Nothing may print to stdout/stderr while the TUI runs; youtubei.js logging is silenced for this.
 - Panels are transparent so the ambient glow shows through: use `'transparent'` or colors with
-  alpha, never opaque backgrounds.
+  alpha, never opaque backgrounds. The exception is anything drawn over other content (key help,
+  search suggestions): a background with any alpha keeps the characters below, so use
+  `colors.overlay`, which is opaque.
 - OpenTUI props are flat (`<box flexGrow={1}>`, no `style` object). `<input onSubmit>` is typed
   `string | SubmitEvent` because its props merge with React DOM's.
 - Don't mark renderables `live`: that redraws the whole UI at 30 fps. Animate with a timer that

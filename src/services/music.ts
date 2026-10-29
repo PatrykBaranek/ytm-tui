@@ -25,6 +25,8 @@ export interface PlaylistInfo {
 
 export interface MusicSource {
   search(query: string): Promise<Track[]>
+  // How YouTube Music would complete a half-typed search, e.g. "daft p" → "daft punk get lucky".
+  suggestions(query: string): Promise<string[]>
   // Songs YouTube Music would play after this one; used for autoplay when the queue runs out.
   radio(trackId: string): Promise<Track[]>
   categories(): Promise<Category[]>
@@ -75,6 +77,14 @@ export function createYouTubeMusic(): MusicSource {
     async search(query) {
       const results = await (await yt()).music.search(query, { type: "song" })
       return (results.songs?.contents ?? []).flatMap(listItemTrack)
+    },
+
+    async suggestions(query) {
+      // The first section holds text completions; the second, songs and artists, is left out.
+      const sections = await (await yt()).music.getSearchSuggestions(query)
+      return sections.flatMap((section) =>
+        section.contents.flatMap((item) => (item.is(YTNodes.SearchSuggestion) ? [item.suggestion.toString()] : [])),
+      )
     },
 
     async radio(trackId) {

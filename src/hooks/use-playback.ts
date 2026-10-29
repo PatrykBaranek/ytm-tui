@@ -10,19 +10,30 @@ export interface Playback {
   history: Track[];
 }
 
+// Songs played most recently first, each once.
+export function recentlyPlayed({ current, history }: Playback) {
+  const seen = new Set<string>();
+  return [current, ...history.toReversed()].filter(
+    (track): track is Track =>
+      track !== null && !seen.has(track.id) && !!seen.add(track.id),
+  );
+}
+
 // The queue and autoplay rules: what plays now, what plays next, and what played before.
-// `notify` receives status messages for the status line.
+// `notify` receives status messages for the status line. `saved` is the session to pick up:
+// its song shows as current but only plays once asked to.
 export function usePlayback(
   player: Player,
   music: MusicSource,
   notify: (message: string) => void,
+  saved?: { playback: Playback; autoplay: boolean },
 ) {
-  const [playback, setPlayback, playbackRef] = useLatestState<Playback>({
-    current: null,
-    queue: [],
-    history: [],
-  });
-  const [autoplay, setAutoplay, autoplayRef] = useLatestState(true);
+  const [playback, setPlayback, playbackRef] = useLatestState<Playback>(
+    saved?.playback ?? { current: null, queue: [], history: [] },
+  );
+  const [autoplay, setAutoplay, autoplayRef] = useLatestState(
+    saved?.autoplay ?? true,
+  );
 
   function start(track: Track, queue: Track[], history: Track[]) {
     setPlayback({ current: track, queue, history: history.slice(-50) });
@@ -106,6 +117,16 @@ export function usePlayback(
     start(prev, current ? [current, ...queue] : queue, history.slice(0, -1));
   }
 
+  // Space: pause or resume. A current song that isn't loaded (picked up from the last session,
+  // or one that failed) starts again from the beginning.
+  function togglePause() {
+    const { current } = playbackRef.current;
+    const { status } = player.state;
+    if (current && (status === 'idle' || status === 'error'))
+      return player.play(current);
+    player.togglePause();
+  }
+
   function toggleAutoplay() {
     const on = !autoplayRef.current;
     setAutoplay(on);
@@ -115,6 +136,9 @@ export function usePlayback(
   const nextRef = useRef(next);
   nextRef.current = next;
   useEffect(() => player.onEnded(() => void nextRef.current()), [player]);
+
+  const upNextId = playback.queue[0]?.id;
+  useEffect(() => player.prefetch(playbackRef.current.queue[0]), [player, upNextId]);
 
   return {
     playback,
@@ -127,6 +151,7 @@ export function usePlayback(
     removeFromQueue,
     next,
     previous,
+    togglePause,
     toggleAutoplay,
   };
 }

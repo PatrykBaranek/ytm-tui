@@ -3,6 +3,17 @@ import { scrollStart } from '../lib/util';
 import type { Track } from '../services/music';
 import { colors } from '../theme';
 
+interface TrackListProps {
+  tracks: Track[];
+  selected: number;
+  focused: boolean;
+  rows: number;
+  width: number;
+  playingId?: string;
+  showAlbum?: boolean;
+  numbered?: boolean;
+}
+
 export function TrackList({
   tracks,
   selected,
@@ -12,16 +23,7 @@ export function TrackList({
   playingId,
   showAlbum = false,
   numbered = false,
-}: {
-  tracks: Track[];
-  selected: number;
-  focused: boolean;
-  rows: number;
-  width: number;
-  playingId?: string;
-  showAlbum?: boolean;
-  numbered?: boolean;
-}) {
+}: TrackListProps) {
   const first = scrollStart(selected, rows, tracks.length);
   const marker = numbered ? String(tracks.length).length + 1 : 2;
   const time = 8;

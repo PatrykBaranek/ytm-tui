@@ -2,6 +2,7 @@ import type { Socket, Subprocess } from "bun"
 import { rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Download } from "./download"
 import type { Track } from "./music"
 
 export type PlayerStatus = "idle" | "loading" | "playing" | "paused" | "error"
@@ -17,6 +18,9 @@ export interface PlayerState {
 export interface Player {
   readonly state: PlayerState
   play(track: Track): void
+  // The song that will probably play next. It downloads while the current one plays, so it
+  // starts right away; undefined cancels that.
+  prefetch(track: Track | undefined): void
   togglePause(): void
   seek(seconds: number, mode?: "relative" | "absolute"): void
   setVolume(volume: number): void
@@ -29,15 +33,15 @@ export interface Player {
 }
 
 interface Session {
-  download: Subprocess<"ignore", "pipe", "pipe">
-  mpv: Subprocess
+  download: Download
+  mpv: Subprocess<"pipe", "ignore", "ignore">
   socketPath: string
   socket?: Socket
   buffer: string
 }
 
 // mpv can't fetch YouTube's stream URLs itself (googlevideo answers 403), so yt-dlp downloads
-// the audio and pipes it into mpv, which is driven over its JSON IPC socket.
+// the audio into memory and we feed it to mpv's stdin. mpv is driven over its JSON IPC socket.
 export class MpvPlayer implements Player {
   state: PlayerState = { status: "idle", position: 0, duration: 0, volume: 80 }
   private listeners = new Set<() => void>()
@@ -45,8 +49,15 @@ export class MpvPlayer implements Player {
   private session?: Session
   private generation = 0
   private paused = false
+  private upNext?: Track
+  private prefetched?: Download
 
-  constructor(private extraMpvArgs: string[] = []) {}
+  constructor(
+    private extraMpvArgs: string[] = [],
+    volume = 80,
+  ) {
+    this.state = { ...this.state, volume }
+  }
 
   play(track: Track) {
     this.endSession()
@@ -55,11 +66,10 @@ export class MpvPlayer implements Player {
     this.update({ status: "loading", position: 0, duration: track.duration, error: undefined })
 
     const socketPath = join(process.env.XDG_RUNTIME_DIR ?? tmpdir(), `ytm-tui-${process.pid}-${generation}.sock`)
-    const url = `https://music.youtube.com/watch?v=${track.id}`
-    const download = Bun.spawn(
-      ["yt-dlp", "--quiet", "--no-warnings", "--no-playlist", "-f", "bestaudio/best", "-o", "-", url],
-      { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
-    )
+    // A prefetch of another song stays: playing something else now doesn't change what's next.
+    const prefetched = this.prefetched?.trackId === track.id && !this.prefetched.error ? this.prefetched : undefined
+    if (prefetched) this.prefetched = undefined
+    const download = prefetched ?? new Download(track.id)
     const mpv = Bun.spawn(
       [
         "mpv",
@@ -70,8 +80,9 @@ export class MpvPlayer implements Player {
         ...this.extraMpvArgs,
         "-",
       ],
-      { stdin: download.stdout, stdout: "ignore", stderr: "ignore" },
+      { stdin: "pipe", stdout: "ignore", stderr: "ignore" },
     )
+    download.pipeTo(mpv.stdin)
     const session: Session = { download, mpv, socketPath, buffer: "" }
     this.session = session
 
@@ -86,10 +97,16 @@ export class MpvPlayer implements Player {
         for (const listener of this.endedListeners) listener()
         return
       }
-      download.kill()
-      const lastLine = (await new Response(download.stderr).text()).trim().split("\n").at(-1)
-      this.update({ status: "error", error: lastLine || `mpv exited with code ${code}` })
+      download.cancel()
+      await download.settled
+      if (generation === this.generation)
+        this.update({ status: "error", error: download.error ?? `mpv exited with code ${code}` })
     })
+  }
+
+  prefetch(track: Track | undefined) {
+    this.upNext = track
+    this.startPrefetch()
   }
 
   togglePause() {
@@ -124,6 +141,7 @@ export class MpvPlayer implements Player {
 
   dispose() {
     this.stop()
+    this.prefetch(undefined)
     this.listeners.clear()
     this.endedListeners.clear()
   }
@@ -182,12 +200,24 @@ export class MpvPlayer implements Player {
     this.session = undefined
     session.socket?.end()
     session.mpv.kill()
-    session.download.kill()
+    session.download.cancel()
     rmSync(session.socketPath, { force: true })
   }
 
+  private startPrefetch() {
+    if (this.prefetched && this.prefetched.trackId !== this.upNext?.id) {
+      this.prefetched.cancel()
+      this.prefetched = undefined
+    }
+    // Wait until the current song plays, so its own download goes first.
+    const playing = this.state.status === "playing" || this.state.status === "paused"
+    if (this.upNext && !this.prefetched && playing) this.prefetched = new Download(this.upNext.id)
+  }
+
   private update(patch: Partial<PlayerState>) {
+    const statusChanged = patch.status !== undefined && patch.status !== this.state.status
     this.state = { ...this.state, ...patch }
     for (const listener of this.listeners) listener()
+    if (statusChanged) this.startPrefetch()
   }
 }

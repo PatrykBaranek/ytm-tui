@@ -4,19 +4,23 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import './components/ambient';
 import { BrowsePane } from './components/browse-pane';
 import { Cover } from './components/cover';
+import { HelpOverlay } from './components/help-overlay';
 import { LOGO_FADE_MS } from './components/logo';
 import { NowPlaying } from './components/now-playing';
+import { SearchSuggestions } from './components/search-suggestions';
 import { Pane } from './components/pane';
 import { Splash } from './components/splash';
 import { TrackList } from './components/track-list';
 import { useCoverPalette } from './hooks/use-cover-palette';
 import { useLatestState } from './hooks/use-latest-state';
 import { useNavigation, type View } from './hooks/use-navigation';
-import { usePlayback } from './hooks/use-playback';
+import { recentlyPlayed, usePlayback } from './hooks/use-playback';
+import { useSearchSuggestions } from './hooks/use-search-suggestions';
 import { fit } from './lib/format';
 import { clamp, shuffled } from './lib/util';
-import type { MusicSource } from './services/music';
+import type { Category, MusicSource } from './services/music';
 import type { Player } from './services/player';
+import type { SessionStore } from './services/store';
 import { colors } from './theme';
 
 type Focus = 'search' | 'results' | 'queue';
@@ -28,6 +32,12 @@ const SPLASH_MIN_MS = 1200;
 const SPLASH_MAX_MS = 4000;
 // Status messages take the key help's place for a few seconds.
 const NOTICE_MS = 4000;
+// Listed above YouTube Music's moods & genres.
+const RECENT: Category = {
+  id: 'recent',
+  title: 'Recently played',
+  group: 'Your music',
+};
 
 interface AppProps {
   music: MusicSource;
@@ -35,23 +45,24 @@ interface AppProps {
   onQuit: () => void;
   coverProtocol?: ImageRenderProtocol;
   splash?: boolean;
+  // Remembers volume, autoplay, the queue and what played across restarts.
+  store?: SessionStore;
 }
 
+// The few keys that matter most right now; `?` shows the rest.
 function helpText(focus: Focus, view: View, canGoBack: boolean) {
-  const controls =
-    'space pause · n/p next/prev · ←/→ seek · +/- vol · r autoplay · q quit';
-  if (focus === 'search') return 'enter search · esc back · ctrl+c quit';
+  if (focus === 'search') return 'enter search · ↑↓ suggestions · esc back';
   if (focus === 'queue')
-    return `enter play · d remove · tab browse · ${controls}`;
+    return 'enter play · d remove · tab browse · space pause · n/p next/prev';
   const back = canGoBack ? ' · esc back' : '';
   switch (view.kind) {
     case 'categories':
     case 'playlists':
-      return `enter open${back} · / search · tab queue · ${controls}`;
+      return `enter open${back} · / search · tab queue · space pause · n/p next/prev`;
     case 'playlist':
-      return `enter play from here · s shuffle · a queue · A queue all${back} · / search · tab queue · ${controls}`;
+      return `enter play from here · s shuffle · a queue · A queue all${back} · / search`;
     case 'search':
-      return `enter play · a queue${back} · / search · tab queue · ${controls}`;
+      return `enter play · a queue${back} · / search · tab queue · space pause`;
   }
 }
 
@@ -61,6 +72,7 @@ export function App({
   onQuit,
   coverProtocol,
   splash = false,
+  store,
 }: AppProps) {
   const { width, height } = useTerminalDimensions();
   const playerState = useSyncExternalStore(
@@ -78,8 +90,11 @@ export function App({
   const [splashState, setSplashState, splashRef] = useLatestState<SplashState>(
     splash ? 'on' : 'off',
   );
+  const [help, setHelp, helpRef] = useLatestState(false);
   const startedAt = useRef(performance.now());
   const searchRef = useRef<InputRenderable>(null);
+  const saved = store?.saved;
+  const resumed = useRef(saved?.current ?? null);
 
   const {
     playback,
@@ -92,9 +107,28 @@ export function App({
     removeFromQueue,
     next,
     previous,
+    togglePause,
     toggleAutoplay,
-  } = usePlayback(player, music, notify);
-  const nav = useNavigation(music, notify);
+  } = usePlayback(
+    player,
+    music,
+    notify,
+    saved
+      ? {
+          playback: {
+            current: saved.current,
+            queue: saved.queue,
+            history: saved.history,
+          },
+          autoplay: saved.autoplay,
+        }
+      : undefined,
+  );
+  const nav = useNavigation(
+    async () => [RECENT, ...(await music.categories())],
+    notify,
+  );
+  const suggest = useSearchSuggestions(music, saved?.searches);
   const view = nav.view;
   const rootStatus = nav.stack[0]!.status;
 
@@ -103,6 +137,25 @@ export function App({
     const timer = setTimeout(() => setNotice(null), NOTICE_MS);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  // The store batches writes, so saving on every change is cheap.
+  useEffect(() => {
+    store?.save({
+      volume: playerState.volume,
+      autoplay,
+      ...playback,
+      searches: suggest.history,
+    });
+  }, [store, playback, autoplay, playerState.volume, suggest.history]);
+
+  // Once the splash is gone, say that the last session is back.
+  useEffect(() => {
+    if (splashState !== 'off' || !resumed.current) return;
+    notify(
+      `Picked up where you left off · space plays ${resumed.current.title}`,
+    );
+    resumed.current = null;
+  }, [splashState]);
 
   useEffect(() => {
     if (splashState === 'off') return;
@@ -120,6 +173,7 @@ export function App({
   async function search(query: string) {
     const q = query.trim();
     if (!q) return;
+    suggest.remember(q);
     setFocus('results');
     notify(`Searching for "${q}"...`);
     const tracks = await nav.open('search', `"${q}"`, () => music.search(q));
@@ -136,7 +190,11 @@ export function App({
     if (view.status === 'error') return nav.retry();
     if (view.kind === 'categories') {
       const category = view.items[index];
-      if (category)
+      if (category?.id === RECENT.id)
+        void nav.open('playlist', category.title, async () =>
+          recentlyPlayed(playbackRef.current),
+        );
+      else if (category)
         void nav.open('playlists', category.title, () =>
           music.playlists(category.id),
         );
@@ -189,8 +247,11 @@ export function App({
   useKeyboard((key) => {
     if (key.ctrl && key.name === 'c') return onQuit();
     if (splashRef.current !== 'off') return setSplashState('off'); // any key skips the splash
+    if (helpRef.current) return setHelp(false); // and any key closes the key help
     if (focusRef.current === 'search') {
       if (key.name === 'escape' || key.name === 'tab') setFocus('results');
+      else if (key.name === 'up') suggest.move(-1);
+      else if (key.name === 'down') suggest.move(1);
       return; // everything else is typing
     }
 
@@ -233,7 +294,7 @@ export function App({
       case 'backspace':
         return inQueue ? setFocus('results') : nav.back();
       case 'space':
-        return player.togglePause();
+        return togglePause();
       case 'left':
         return player.seek(-10);
       case 'right':
@@ -248,6 +309,8 @@ export function App({
     }
 
     switch (key.sequence) {
+      case '?':
+        return setHelp(true);
       case '/':
         setFocus('search');
         return searchRef.current?.selectAll?.();
@@ -281,6 +344,7 @@ export function App({
   });
 
   const autoplayLabel = `autoplay ${autoplay ? 'on' : 'off'}`;
+  const keysLabel = '? keys · ';
 
   return (
     <box width="100%" height="100%" flexDirection="column">
@@ -321,9 +385,17 @@ export function App({
               ref={searchRef}
               focused={focus === 'search'}
               placeholder="Songs, artists, albums..."
-              // OpenTUI's input props are merged with React DOM's, so onSubmit is typed string | SubmitEvent.
+              // OpenTUI's input props are merged with React DOM's, so these are typed string | Event.
+              onInput={(value) => {
+                if (typeof value === 'string') suggest.onInput(value);
+              }}
               onSubmit={(value) => {
-                if (typeof value === 'string') void search(value);
+                if (typeof value !== 'string') return;
+                // Enter on a highlighted suggestion searches it, and shows it in the box.
+                const query = suggest.take(value);
+                if (searchRef.current && query !== value)
+                  searchRef.current.value = query;
+                void search(query);
               }}
             />
           </box>
@@ -380,13 +452,26 @@ export function App({
             <text fg={notice ? colors.fg : colors.muted} paddingLeft={1}>
               {fit(
                 notice?.text ?? helpText(focus, view, nav.stack.length > 1),
-                width - autoplayLabel.length - 3,
+                width - keysLabel.length - autoplayLabel.length - 3,
               )}
             </text>
-            <text fg={autoplay ? colors.playing : colors.muted}>
-              {autoplayLabel}
+            <text>
+              <span fg={colors.muted}>{keysLabel}</span>
+              <span fg={autoplay ? colors.playing : colors.muted}>
+                {autoplayLabel}
+              </span>
             </text>
           </box>
+          {focus === 'search' && suggest.rows.length > 0 && (
+            <SearchSuggestions
+              rows={suggest.rows}
+              selected={suggest.selected}
+              query={suggest.query}
+              width={resultsWidth}
+              top={3}
+            />
+          )}
+          {help && <HelpOverlay width={width} />}
         </>
       )}
     </box>
