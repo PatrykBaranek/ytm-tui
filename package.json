@@ -1,0 +1,57 @@
+{
+  "name": "ytm-tui",
+  "version": "0.1.0",
+  "description": "Terminal YouTube Music client: search, queue, autoplay radio, cover art and an ambient glow",
+  "keywords": [
+    "youtube-music",
+    "music",
+    "player",
+    "tui",
+    "terminal",
+    "cli",
+    "mpv",
+    "yt-dlp",
+    "opentui"
+  ],
+  "author": "Patryk Baranek <cien2460045@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PatrykBaranek/ytm-tui.git"
+  },
+  "homepage": "https://github.com/PatrykBaranek/ytm-tui#readme",
+  "bugs": "https://github.com/PatrykBaranek/ytm-tui/issues",
+  "type": "module",
+  "bin": {
+    "ytm-tui": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "scripts": {
+    "start": "bun src/index.tsx",
+    "build": "bun build src/index.tsx --target=bun --packages=external --outfile dist/cli.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepack": "bun run build",
+    "prepublishOnly": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.8.0",
+    "@opentui/react": "^0.8.0",
+    "react": "^19.3.1",
+    "youtubei.js": "^18.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.3.0",
+    "typescript": "^7"
+  }
+}
