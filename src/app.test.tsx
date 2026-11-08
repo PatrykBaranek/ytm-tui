@@ -154,8 +154,8 @@ test("search, play, queue, then autoplay from radio", async () => {
     await keys.typeText("test query")
     keys.pressEnter()
   })
-  let frame = await setup.waitForFrame((f) => f.includes("Slow Orbit"))
-  expect(frame).toContain('3 songs for "test query"')
+  // The count is set just after the results land, so it can reach the screen one frame later.
+  let frame = await setup.waitForFrame((f) => f.includes("Slow Orbit") && f.includes('3 songs for "test query"'))
 
   // Enter plays the selected song; "a" queues the next one.
   await act(async () => {
