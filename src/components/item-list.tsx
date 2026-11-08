@@ -16,7 +16,7 @@ interface ItemListProps {
   width: number;
 }
 
-// One row per mood, genre or playlist: a name and muted detail text. Songs use TrackList.
+// One row per playlist: a name and muted detail text. Songs use TrackList.
 export function ItemList({
   items,
   selected,
@@ -34,16 +34,24 @@ export function ItemList({
     <>
       {items.slice(first, first + rows).map((item, offset) => {
         const index = first + offset;
+        const isSelected = index === selected;
         return (
           <box
             key={item.key}
             height={1}
+            flexShrink={0}
             backgroundColor={
-              index === selected && focused ? colors.rowSelected : 'transparent'
+              isSelected
+                ? focused
+                  ? colors.rowSelected
+                  : colors.rowSelectedDim
+                : 'transparent'
             }
           >
             <text>
-              {'  '}
+              <span fg={focused ? colors.accent : colors.muted}>
+                {isSelected ? '▌ ' : '  '}
+              </span>
               <span fg={colors.fg}>{fit(item.label, labelWidth)}</span>
               <span fg={colors.muted}>{fit(item.detail, rest - labelWidth)}</span>
             </text>

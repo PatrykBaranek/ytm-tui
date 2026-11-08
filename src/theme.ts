@@ -1,6 +1,8 @@
 // Panels are transparent so the ambient glow (src/components/ambient.ts) shows through.
 export const colors = {
   rowSelected: "#ffffff24",
+  // The selection in whichever pane doesn't have focus, so it never disappears.
+  rowSelectedDim: "#ffffff10",
   border: "#ffffff38",
   borderFocused: "#f7768e",
   fg: "#ececec",
