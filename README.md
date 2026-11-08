@@ -6,18 +6,20 @@ A small terminal client for YouTube Music: browse what's new and trending, playl
 genre, and artist and album pages; search, play, queue, and autoplay similar songs.
 Built with [OpenTUI](https://opentui.com) + React on Bun.
 
-![ytm-tui: the splash, browsing Chill playlists, a search with suggestions, a song playing with the glow taking its cover's colors, and the key help](docs/demo.gif)
+![ytm-tui: the splash, browsing Chill playlists, home's tabs with a big cover, a search with suggestions, a song playing with the glow taking its cover's colors, an artist page, and the key help](docs/demo.gif)
 
 ## Install
 
 Needs [Bun](https://bun.sh) 1.3.14 or newer, plus `mpv` and `yt-dlp` on your PATH. Linux and macOS.
 
-```bash
-bun add -g ytm-tui      # or: npm i -g ytm-tui (Bun must still be installed)
-ytm                     # or the full name, ytm-tui
+ytm-tui isn't on npm yet, so run it from a checkout:
 
-bunx ytm-tui            # run once without installing
-ytm --help              # options and environment variables
+```bash
+git clone https://github.com/PatrykBaranek/ytm-tui.git
+cd ytm-tui
+bun install
+bun start
+bun src/index.tsx --help   # options and environment variables
 ```
 
 ## Development
@@ -40,6 +42,7 @@ builds first (`prepublishOnly`, `prepack`).
 |---|---|
 | `/` | Search: suggestions appear as you type, recent searches when the box is empty; `↑/↓` picks one, enter runs it, esc goes back to the list |
 | `↑/↓` or `j/k` | Move selection |
+| `pgup` / `pgdn` | Move a page |
 | `←/→` or `h/l` | Switch tab on home; on search and artist pages, move to the next section |
 | `enter` | Open what's selected; play a song (in a playlist or album, the rest of it becomes up next) |
 | `esc` / `backspace` | Back to the previous page |
@@ -73,14 +76,16 @@ The app opens on home: one big cover of what's selected, beside one list at a ti
 between its tabs: **Recent**, the songs you played; **Moods** and genres (Chill, Focus, Hip-hop,
 Rock...); **For you** (YouTube Music's quick picks); **New** albums and singles; and **Trending**.
 A mood or genre lists the playlists YouTube Music's editors made for it; community playlists are
-left out.
+left out. Until you've played something there's no Recent tab, so home opens on Moods. The app isn't
+signed in, so For you, New and Trending are YouTube Music's general picks, not based on what you
+listen to.
 
 A search lists the closest artists and albums above the songs, and starts on the top song, so enter
 still plays it. Status messages show in the bottom line for a few seconds, in place of the key help.
 
 ## How it works
 
-- `src/services/music.ts`: search, "up next" radio, moods & genres and playlists through [youtubei.js](https://github.com/LuanRT/YouTube.js) (YouTube's internal API, no API key).
+- `src/services/music.ts`: search, "up next" radio, moods & genres, playlists, artist and album pages and home's tabs through [youtubei.js](https://github.com/LuanRT/YouTube.js) (YouTube's internal API, no API key).
 - `src/services/player.ts`: YouTube's stream URLs return 403 when mpv fetches them directly, so yt-dlp downloads
   the audio into memory (`src/services/download.ts`) and the app feeds it to mpv's stdin. Pause, seek, volume
   and position go over mpv's JSON IPC socket.
@@ -102,9 +107,10 @@ splash logo (`src/components/logo.ts`) appears behind a glint.
 
 ## Cover art
 
-The column beside the page shows the cover and details of what you've selected: a song, an album,
-an artist or a playlist. On a row with no picture of its own, like a mood, it shows the song that's
-playing. OpenTUI picks how to draw it: real pixels on terminals with kitty graphics
+On home, one big cover shows what you've selected; a mood has no cover, so its name is drawn large
+instead. On other pages, the column beside the list shows the cover and details of what you've
+selected: a song, an album, an artist or a playlist. On a row with no picture of its own, it shows
+the song that's playing. OpenTUI picks how to draw covers: real pixels on terminals with kitty graphics
 (Ghostty, kitty, WezTerm), colored block characters everywhere else and inside tmux.
 If it guesses wrong (some multiplexers hide what the terminal supports), force it:
 
