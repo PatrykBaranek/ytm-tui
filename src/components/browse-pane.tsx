@@ -19,6 +19,7 @@ const emptyText: Record<View['kind'], string> = {
   categories: 'No moods or genres found.',
   playlists: 'No playlists here.',
   playlist: 'Nothing here yet.',
+  artist: 'No songs or albums found for this artist.',
   search: 'No songs found.',
 };
 
@@ -71,6 +72,24 @@ export function BrowsePane({
             key: playlist.id,
             label: playlist.title,
             detail: playlist.subtitle,
+          }))}
+          selected={view.selected}
+          focused={focused}
+          rows={rows}
+          width={inner}
+        />
+      ) : view.kind === 'artist' ? (
+        <ItemList
+          // The section name labels the first row of its section, as groups do on moods & genres.
+          items={view.items.map((item, i) => ({
+            key: `${i}-${'track' in item ? item.track.id : item.album.id}`,
+            label: 'track' in item ? item.track.title : item.album.title,
+            detail: [
+              view.items[i - 1]?.section === item.section ? '' : item.section,
+              'album' in item ? item.album.subtitle : '',
+            ]
+              .filter(Boolean)
+              .join(' · '),
           }))}
           selected={view.selected}
           focused={focused}

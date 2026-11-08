@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { errorMessage } from '../lib/util';
-import type { Category, PlaylistInfo, Track } from '../services/music';
+import type { ArtistItem, Category, PlaylistInfo, Track } from '../services/music';
 import { useLatestState } from './use-latest-state';
 
 interface Page<Kind extends string, Item> {
@@ -12,13 +12,17 @@ interface Page<Kind extends string, Item> {
   status: 'loading' | 'ready' | 'error';
   error?: string;
   load: () => Promise<Item[]>;
+  // Identifies an artist or album page, so a repeated key doesn't stack the same page twice.
+  key?: string;
 }
 
-// What the left pane shows: moods & genres, a category's playlists, one playlist, or search results.
+// What the left pane shows: moods & genres, a category's playlists, one playlist or album, an
+// artist's page, or search results.
 export type View =
   | Page<'categories', Category>
   | Page<'playlists', PlaylistInfo>
   | Page<'playlist', Track>
+  | Page<'artist', ArtistItem>
   | Page<'search', Track>;
 
 type ItemOf<Kind extends View['kind']> = Extract<View, { kind: Kind }>['items'][number];
@@ -71,7 +75,10 @@ export function useNavigation(
     kind: Kind,
     title: string,
     loader: () => Promise<ItemOf<Kind>[]>,
+    key?: string,
   ) {
+    if (key && stackRef.current.at(-1)?.key === key)
+      return Promise.resolve(null);
     const view = {
       kind,
       id: nextId.current++,
@@ -80,6 +87,7 @@ export function useNavigation(
       selected: 0,
       status: 'loading',
       load: loader,
+      key,
     } as unknown as View;
     // A new search replaces the previous results instead of stacking on top of them.
     const below = stackRef.current;
@@ -89,6 +97,13 @@ export function useNavigation(
         : below;
     setStack([...base, view]);
     return load(view) as Promise<ItemOf<Kind>[] | null>;
+  }
+
+  // For pages whose name is only known once they load, like an artist's.
+  function rename(key: string, title: string) {
+    // The newest match: the same artist can be open further down the stack.
+    const view = stackRef.current.findLast((v) => v.key === key);
+    if (view) update(view.id, { title });
   }
 
   function back() {
@@ -114,6 +129,7 @@ export function useNavigation(
     stackRef,
     view: stack.at(-1)!,
     open,
+    rename,
     back,
     select,
     retry,

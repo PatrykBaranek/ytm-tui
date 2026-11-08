@@ -18,7 +18,8 @@ playback by piping yt-dlp into mpv. Use Bun, not Node (`bun install`, `bunx`, `b
 - `src/services/`: the outside world, no React. `music.ts` (`MusicSource`), `player.ts` (`Player`),
   `download.ts` (one song's audio, via yt-dlp), `store.ts` (the saved session)
 - `src/hooks/`: `use-playback.ts` holds the queue, history and autoplay rules; `use-navigation.ts`
-  the stack of lists the left pane shows (moods & genres › playlists › songs, or search results);
+  the stack of lists the left pane shows (moods & genres › playlists › songs, artist and album
+  pages, or search results);
   `use-search-suggestions.ts` the list under the search box
 - `src/components/`: panels, plus custom renderables registered with `extend()`: `ambient.ts` (the
   glow) and `logo.ts` (the splash logo)

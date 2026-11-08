@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test"
 import { testRender } from "@opentui/react/test-utils"
 import { act } from "react"
-import { App } from "./app"
-import type { Category, MusicSource, PlaylistInfo, Track } from "./services/music"
+import { App, coverFor } from "./app"
+import type { ArtistPage, Category, MusicSource, PlaylistInfo, Track } from "./services/music"
 import type { Player, PlayerState } from "./services/player"
 import type { SavedSession, SessionStore } from "./services/store"
 
@@ -39,7 +39,58 @@ const fakeMusic: MusicSource = {
   categories: async () => categories,
   playlists: async (id) => (opened.push(id), id === "rock" ? rockPlaylists : []),
   playlist: async (id) => (opened.push(id), id === "pl-classics" ? classics : []),
+  artist: async (id) => {
+    artistCalls.push(id)
+    if (id === "UC-broken") throw new Error("YouTube said no")
+    return id === "UC-empty" ? { name: "Nobody", items: [] } : bandPage
+  },
+  album: async (id) => {
+    albumCalls.push(id)
+    if (id === "MPR-empty") return []
+    return albumTracks
+  },
 }
+
+// Songs that link to an artist and an album, as search results do.
+const linked = (id: string, title: string, artistId?: string, albumId?: string): Track => ({
+  ...track(id, title),
+  artistId,
+  albumId,
+})
+const artistCalls: string[] = []
+const albumCalls: string[] = []
+const bandPage: ArtistPage = {
+  name: "The Band",
+  items: [
+    { section: "Top songs", track: linked("t1", "Top Hit", "UC-band") },
+    { section: "Top songs", track: linked("t2", "Second Hit", "UC-band") },
+    { section: "Albums", album: { id: "MPR-first", title: "First Album", subtitle: "2013", cover: "" } },
+  ],
+}
+const albumTracks = [
+  linked("al1", "Album Opener", "UC-band", "MPR-first"),
+  linked("al2", "Album Closer", "UC-band", "MPR-first"),
+]
+const pressEscapeIn = (keys: { pressEscape(): void }) => act(async () => (keys.pressEscape(), Bun.sleep(50)))
+
+async function searchFor(
+  setup: Awaited<ReturnType<typeof testRender>>,
+  music: MusicSource,
+  title: string,
+) {
+  await setup.waitForFrame((f) => f.includes("Chill"))
+  await act(async () => setup.mockInput.pressKey("/"))
+  await act(async () => {
+    await setup.mockInput.typeText("query")
+    setup.mockInput.pressEnter()
+  })
+  await setup.waitForFrame((f) => f.includes(title))
+  artistCalls.length = 0
+  albumCalls.length = 0
+  return music
+}
+
+const withSongs = (songs: Track[]): MusicSource => ({ ...fakeMusic, search: async () => songs })
 
 class FakePlayer implements Player {
   state: PlayerState = { status: "idle", position: 0, duration: 0, volume: 80 }
@@ -311,4 +362,245 @@ test("search suggests completions, and remembers what was searched", async () =>
   // Back in the box, it is listed as a recent search.
   await act(async () => keys.pressKey("/"))
   frame = await setup.waitForFrame((f) => f.includes("↺ mor live"))
+})
+
+test("g opens a song's artist: songs play and queue, albums open, esc goes back", async () => {
+  const player = new FakePlayer()
+  const music = withSongs([linked("s1", "Linked Song", "UC-band", "MPR-first")])
+  await using setup = await testRender(<App music={music} player={player} onQuit={() => {}} />, {
+    width: 100,
+    height: 30,
+  })
+  const keys = setup.mockInput
+  await searchFor(setup, music, "Linked Song")
+
+  await act(async () => keys.pressKey("g"))
+  let frame = await setup.waitForFrame((f) => f.includes("Top Hit"))
+  expect(artistCalls).toEqual(["UC-band"])
+  expect(frame).toContain("The Band")
+  expect(frame).toMatch(/Top Hit +Top songs/)
+  expect(frame).toMatch(/First Album +Albums · 2013/)
+
+  // Enter plays a song, "a" queues the next one.
+  await act(async () => {
+    keys.pressEnter()
+    keys.pressArrow("down")
+    keys.pressKey("a")
+  })
+  frame = await setup.waitForFrame((f) => f.includes("up next · 1"))
+  expect(player.played).toEqual(["t1"])
+  expect(frame).toContain("1 Second Hit")
+
+  // Enter on an album opens its tracks, which play like a playlist.
+  await act(async () => {
+    keys.pressArrow("down")
+    keys.pressEnter()
+  })
+  frame = await setup.waitForFrame((f) => f.includes("Album Closer"))
+  expect(albumCalls).toEqual(["MPR-first"])
+  expect(frame).toContain("The Band › First Album")
+  await act(async () => keys.pressEnter())
+  await setup.waitForFrame((f) => f.includes("Playing First Album · 1 up next"))
+  expect(player.played).toEqual(["t1", "al1"])
+
+  // The same artist opened again further up the stack gets its name too.
+  await act(async () => keys.pressKey("g"))
+  frame = await setup.waitForFrame((f) => f.includes("Top Hit"))
+  expect(frame).toContain("The Band › First Album › The Band")
+  await pressEscapeIn(keys)
+  await setup.waitForFrame((f) => f.includes("Album Closer"))
+
+  // Esc goes back one page at a time, with the album row still selected.
+  await pressEscapeIn(keys)
+  frame = await setup.waitForFrame((f) => f.includes("First Album") && !f.includes("› First Album"))
+  await pressEscapeIn(keys)
+  await setup.waitForFrame((f) => f.includes("Linked Song") && !f.includes("The Band"))
+})
+
+test("b opens a song's album, from the list and from the queue", async () => {
+  const player = new FakePlayer()
+  const music = withSongs([
+    linked("s1", "Linked Song", "UC-band", "MPR-first"),
+    linked("s2", "Queued Song", "UC-band", "MPR-second"),
+  ])
+  await using setup = await testRender(<App music={music} player={player} onQuit={() => {}} />, {
+    width: 100,
+    height: 30,
+  })
+  const keys = setup.mockInput
+  await searchFor(setup, music, "Queued Song")
+
+  await act(async () => keys.pressKey("b"))
+  let frame = await setup.waitForFrame((f) => f.includes("Album Opener"))
+  expect(albumCalls).toEqual(["MPR-first"])
+  expect(frame).toContain("Test Album")
+
+  // From the queue the page opens on the left, and the list takes focus.
+  await pressEscapeIn(keys)
+  await setup.waitForFrame((f) => f.includes("Queued Song"))
+  await act(async () => {
+    keys.pressEnter() // plays the first song
+    keys.pressArrow("down")
+    keys.pressKey("a")
+    keys.pressKey("\t")
+  })
+  await setup.waitForFrame((f) => f.includes("1 Queued Song"))
+  await act(async () => keys.pressKey("b"))
+  await setup.waitForFrame((f) => f.includes("Album Closer"))
+  expect(albumCalls).toEqual(["MPR-first", "MPR-second"])
+  await act(async () => keys.pressEnter())
+  expect(player.played).toEqual(["s1", "al1"])
+})
+
+test("songs without links say so in the status line, and saved sessions without ids still work", async () => {
+  const store: SessionStore = {
+    saved: {
+      volume: 55,
+      autoplay: false,
+      current: null,
+      queue: [],
+      history: [track("old", "Old Saved Song")], // no artistId or albumId, like older session files
+      searches: [],
+    },
+    save: () => {},
+  }
+  artistCalls.length = 0
+  albumCalls.length = 0
+  await using setup = await testRender(<App music={fakeMusic} player={new FakePlayer()} onQuit={() => {}} store={store} />, {
+    width: 100,
+    height: 30,
+  })
+  const keys = setup.mockInput
+  await setup.waitForFrame((f) => f.includes("Recently played"))
+
+  // Moods & genres hold no songs.
+  await act(async () => keys.pressKey("g"))
+  await setup.waitForFrame((f) => f.includes("Select a song to open its artist"))
+
+  await act(async () => keys.pressEnter())
+  await setup.waitForFrame((f) => f.includes("Old Saved Song"))
+  await act(async () => keys.pressKey("g"))
+  await setup.waitForFrame((f) => f.includes('No artist page for "Old Saved Song"'))
+  await act(async () => keys.pressKey("b"))
+  await setup.waitForFrame((f) => f.includes('No album page for "Old Saved Song"'))
+  expect(artistCalls).toEqual([])
+  expect(albumCalls).toEqual([])
+})
+
+test("errors and empty pages show in the status line, and enter retries", async () => {
+  const music = withSongs([
+    linked("s1", "Broken Artist", "UC-broken", "MPR-empty"),
+    linked("s2", "Empty Artist", "UC-empty"),
+  ])
+  await using setup = await testRender(<App music={music} player={new FakePlayer()} onQuit={() => {}} />, {
+    width: 100,
+    height: 30,
+  })
+  const keys = setup.mockInput
+  await searchFor(setup, music, "Empty Artist")
+
+  await act(async () => keys.pressKey("g"))
+  let frame = await setup.waitForFrame((f) => f.includes("Couldn't load artist: YouTube said no"))
+  expect(frame).toContain("Press enter to retry")
+  await act(async () => keys.pressEnter())
+  await setup.waitForFrame((f) => artistCalls.length === 2 && f.includes("Couldn't load artist"))
+
+  await pressEscapeIn(keys)
+  await setup.waitForFrame((f) => f.includes("Empty Artist"))
+  await act(async () => keys.pressKey("b"))
+  await setup.waitForFrame((f) => f.includes("No songs found on Test Album"))
+
+  await pressEscapeIn(keys)
+  await setup.waitForFrame((f) => f.includes("Empty Artist"))
+  await act(async () => {
+    keys.pressArrow("down")
+    keys.pressKey("g")
+  })
+  frame = await setup.waitForFrame((f) => f.includes("No songs or albums found for this artist"))
+  expect(frame).toContain("Nobody")
+})
+
+test("repeated keys in one chunk open a page only once", async () => {
+  const music = withSongs([linked("s1", "Linked Song", "UC-band", "MPR-first")])
+  await using setup = await testRender(<App music={music} player={new FakePlayer()} onQuit={() => {}} />, {
+    width: 100,
+    height: 30,
+  })
+  const keys = setup.mockInput
+  await searchFor(setup, music, "Linked Song")
+
+  await act(async () => {
+    keys.pressKey("g")
+    keys.pressKey("g")
+    keys.pressKey("b")
+  })
+  await setup.waitForFrame((f) => f.includes("Top Hit"))
+  expect(artistCalls).toEqual(["UC-band"])
+  expect(albumCalls).toEqual([])
+
+  // Pressed again once loaded, on a song by the same artist, it stays on the same page.
+  await act(async () => keys.pressKey("g"))
+  await setup.renderOnce()
+  expect(artistCalls).toEqual(["UC-band"])
+
+  await pressEscapeIn(keys)
+  await setup.waitForFrame((f) => f.includes("Linked Song") && !f.includes("Top Hit"))
+})
+
+test("artist and album pages keep working in very small terminals", async () => {
+  // Small but usable: the rows are cut short and the status line still reports problems.
+  {
+    const music = withSongs([linked("s1", "A Song With A Rather Long Title", "UC-band")])
+    await using setup = await testRender(<App music={music} player={new FakePlayer()} onQuit={() => {}} />, {
+      width: 40,
+      height: 13,
+    })
+    const keys = setup.mockInput
+    await searchFor(setup, music, "songs for")
+    await act(async () => keys.pressKey("b"))
+    await setup.waitForFrame((f) => f.includes("No album page"))
+    await act(async () => keys.pressKey("g"))
+    await setup.waitForFrame((f) => f.includes("Top H"))
+    await act(async () => {
+      keys.pressArrow("down")
+      keys.pressArrow("down")
+      keys.pressEnter()
+    })
+    await act(() => Bun.sleep(20))
+    expect(albumCalls).toEqual(["MPR-first"])
+  }
+  // Too small to show the list at all: nothing throws, and the keys still act.
+  {
+    const music = withSongs([linked("s1", "Tiny", "UC-band", "MPR-first")])
+    await using setup = await testRender(<App music={music} player={new FakePlayer()} onQuit={() => {}} />, {
+      width: 20,
+      height: 6,
+    })
+    const keys = setup.mockInput
+    await act(() => Bun.sleep(20))
+    await act(async () => keys.pressKey("/"))
+    await act(async () => {
+      await keys.typeText("query")
+      keys.pressEnter()
+    })
+    await act(() => Bun.sleep(20))
+    artistCalls.length = 0
+    await act(async () => keys.pressKey("g"))
+    await act(() => Bun.sleep(20))
+    await setup.renderOnce()
+    expect(artistCalls).toEqual(["UC-band"])
+    expect(setup.captureCharFrame()).not.toContain("Invalid width")
+  }
+})
+
+test("the cover falls back to the highlighted row when the song has no image", () => {
+  const withCover = (cover: string) => ({ ...track("x", "X"), cover })
+  expect(coverFor(withCover("playing.jpg"), undefined)).toBe("playing.jpg")
+  expect(coverFor(withCover(""), withCover("row.jpg"))).toBe("row.jpg")
+  expect(coverFor(null, { section: "Top songs", track: withCover("song.jpg") })).toBe("song.jpg")
+  expect(coverFor(withCover(""), { section: "Albums", album: { id: "a", title: "A", subtitle: "", cover: "album.jpg" } })).toBe(
+    "album.jpg",
+  )
+  expect(coverFor(withCover(""), withCover(""))).toBeUndefined()
+  expect(coverFor(null, undefined)).toBeUndefined()
 })
