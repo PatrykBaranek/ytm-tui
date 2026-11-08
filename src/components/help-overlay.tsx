@@ -7,7 +7,7 @@ const LEFT: Section[] = [
   [
     'Browse',
     [
-      ['enter', 'open a mood, genre or playlist'],
+      ['enter', 'open a mood, genre, playlist or album'],
       ['esc / backspace', 'back'],
       ['↑ ↓ / j k', 'move'],
       ['pgup / pgdn', 'move a page'],
@@ -22,6 +22,8 @@ const LEFT: Section[] = [
       ['a', 'add to up next'],
       ['A', 'add the whole playlist'],
       ['s', 'shuffle the playlist'],
+      ['g', 'open its artist (list or queue)'],
+      ['b', 'open its album (list or queue)'],
     ],
   ],
   [

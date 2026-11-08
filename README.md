@@ -40,11 +40,13 @@ builds first (`prepublishOnly`, `prepack`).
 |---|---|
 | `/` | Search: suggestions appear as you type, recent searches when the box is empty; `↑/↓` picks one, enter runs it, esc goes back to the list |
 | `↑/↓` or `j/k` | Move selection |
-| `enter` | Open a mood, genre or playlist; play a song (in a playlist, the rest of it becomes up next) |
+| `enter` | Open a mood, genre, playlist or album; play a song (in a playlist or album, the rest of it becomes up next) |
 | `esc` / `backspace` | Back to the previous list |
 | `a` | Add the selected song to the up-next queue |
 | `A` | Add the whole playlist to the queue |
 | `s` | Shuffle the playlist and play it |
+| `g` | Open the selected song's artist (in the list or the queue) |
+| `b` | Open the selected song's album (in the list or the queue) |
 | `tab` | Switch between the list and the queue |
 | `d` / `x` / `delete` | Remove from queue |
 | `space` | Pause / resume |
@@ -70,6 +72,13 @@ The app opens on YouTube Music's moods & genres: 12 moods (Chill, Focus, Workout
 24 genres (Hip-hop, Rock, Jazz...). Each one lists the playlists YouTube Music's editors made for
 it; community playlists are left out. Status messages show in the bottom line for a few seconds,
 in place of the key help.
+
+## Artists and albums
+
+Press `g` on a song, in the list or the queue, for its artist's top songs, albums and singles; `b` for
+its album. Both open in the left pane, so esc goes back. A song with several artists opens the first
+one YouTube Music links to a page. Songs saved by an older version, and some artist top songs, have
+no link to follow; the status line says so.
 
 ## How it works
 

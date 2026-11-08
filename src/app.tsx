@@ -18,7 +18,7 @@ import { recentlyPlayed, usePlayback } from './hooks/use-playback';
 import { useSearchSuggestions } from './hooks/use-search-suggestions';
 import { fit } from './lib/format';
 import { clamp, shuffled } from './lib/util';
-import type { Category, MusicSource } from './services/music';
+import type { Category, MusicSource, Track } from './services/music';
 import type { Player } from './services/player';
 import type { SessionStore } from './services/store';
 import { colors } from './theme';
@@ -53,17 +53,43 @@ interface AppProps {
 function helpText(focus: Focus, view: View, canGoBack: boolean) {
   if (focus === 'search') return 'enter search · ↑↓ suggestions · esc back';
   if (focus === 'queue')
-    return 'enter play · d remove · tab browse · space pause · n/p next/prev';
+    return 'enter play · d remove · g artist · b album · tab browse · space pause';
   const back = canGoBack ? ' · esc back' : '';
   switch (view.kind) {
     case 'categories':
     case 'playlists':
       return `enter open${back} · / search · tab queue · space pause · n/p next/prev`;
     case 'playlist':
-      return `enter play from here · s shuffle · a queue · A queue all${back} · / search`;
+      return `enter play from here · s shuffle · a queue · A queue all · g artist · b album${back}`;
+    case 'artist':
+      return `enter play or open · a queue · g artist · b album${back} · / search`;
     case 'search':
-      return `enter play · a queue${back} · / search · tab queue · space pause`;
+      return `enter play · a queue · g artist · b album${back} · / search · tab queue`;
   }
+}
+
+// The song on a browse row, if that row holds one.
+function songAt(view: View, index: number): Track | undefined {
+  if (view.kind === 'playlist' || view.kind === 'search')
+    return view.items[index];
+  if (view.kind !== 'artist') return undefined;
+  const item = view.items[index];
+  return item && 'track' in item ? item.track : undefined;
+}
+
+// The playing song drives the cover and the glow; without one, or if it has no image of its own
+// (an empty string, not undefined), the highlighted row does.
+export function coverFor(
+  current: Track | null,
+  highlighted: View['items'][number] | undefined,
+) {
+  if (current?.cover) return current.cover;
+  if (!highlighted) return undefined;
+  // In this order: a song's `album` is its album's name, not an artist page's album row.
+  if ('cover' in highlighted) return highlighted.cover || undefined;
+  if ('track' in highlighted) return highlighted.track.cover || undefined;
+  if ('album' in highlighted) return highlighted.album.cover || undefined;
+  return undefined;
 }
 
 export function App({
@@ -185,7 +211,43 @@ export function App({
       );
   }
 
-  // Enter on the left pane: open a mood, genre or playlist, or play a song.
+  async function openArtist(artistId: string) {
+    const key = `artist:${artistId}`;
+    const items = await nav.open(
+      'artist',
+      'artist',
+      async () => {
+        const page = await music.artist(artistId);
+        if (page.name) nav.rename(key, page.name);
+        return page.items;
+      },
+      key,
+    );
+    if (items?.length === 0) notify('No songs or albums found for this artist');
+  }
+
+  async function openAlbum(albumId: string, title: string) {
+    const items = await nav.open(
+      'playlist',
+      title,
+      () => music.album(albumId),
+      `album:${albumId}`,
+    );
+    if (items?.length === 0) notify(`No songs found on ${title}`);
+  }
+
+  // g and b: open the selected song's artist or album in the left pane.
+  function openFromSong(target: 'artist' | 'album', song: Track | undefined) {
+    if (!song) return notify(`Select a song to open its ${target}`);
+    const id = target === 'artist' ? song.artistId : song.albumId;
+    if (!id) return notify(`No ${target} page for "${song.title}"`);
+    setFocus('results');
+    void (target === 'artist'
+      ? openArtist(id)
+      : openAlbum(id, song.album || 'album'));
+  }
+
+  // Enter on the left pane: open a mood, genre, playlist or album, or play a song.
   function activate(view: View, index: number) {
     if (view.status === 'error') return nav.retry();
     if (view.kind === 'categories') {
@@ -208,6 +270,11 @@ export function App({
       if (!view.items[index]) return;
       playFrom(view.items, index);
       notify(`Playing ${view.title} · ${view.items.length - index - 1} up next`);
+    } else if (view.kind === 'artist') {
+      const item = view.items[index];
+      if (!item) return;
+      if ('track' in item) playNow(item.track);
+      else void openAlbum(item.album.id, item.album.title);
     } else {
       const track = view.items[index];
       if (track) playNow(track);
@@ -217,7 +284,8 @@ export function App({
   // Layout: search 3 + panes (rows + 2 borders) + now playing 4 + status line 1.
   const listRows = Math.max(3, height - 10);
   const queueWidth = clamp(Math.floor(width * 0.34), 24, 48);
-  const resultsWidth = width - queueWidth;
+  // The queue keeps its minimum width, so a very narrow terminal would leave less than nothing.
+  const resultsWidth = Math.max(1, width - queueWidth);
   // The cover sits above the queue. Terminal cells are about twice as tall as they are wide,
   // so a square cover filling the column needs about half as many rows as columns.
   const panesHeight = listRows + 2;
@@ -235,13 +303,9 @@ export function App({
     Math.max(0, playback.queue.length - 1),
   );
 
-  // The playing song drives the cover and the glow; while nothing plays, the selected song or
-  // playlist does.
   const highlighted =
     view.items[clamp(view.selected, 0, Math.max(0, view.items.length - 1))];
-  const coverSource =
-    playback.current?.cover ??
-    (highlighted && 'cover' in highlighted ? highlighted.cover : undefined);
+  const coverSource = coverFor(playback.current, highlighted);
   const palette = useCoverPalette(coverSource);
 
   useKeyboard((key) => {
@@ -271,11 +335,9 @@ export function App({
     const move = (delta: number) =>
       setIndex(clamp(index + delta, 0, lastIndex));
     // The song under the cursor, if the focused list holds songs.
-    const track = inQueue
-      ? queue[index]
-      : view.kind === 'playlist' || view.kind === 'search'
-        ? view.items[index]
-        : undefined;
+    const track = inQueue ? queue[index] : songAt(view, index);
+    // A page that is still loading has no rows yet, so a repeated g or b has nothing to act on.
+    const loading = !inQueue && view.status === 'loading';
 
     switch (key.name) {
       case 'up':
@@ -327,6 +389,10 @@ export function App({
       case 'd':
       case 'x':
         return inQueue ? removeFromQueue(index) : undefined;
+      case 'g':
+        return loading ? undefined : openFromSong('artist', track);
+      case 'b':
+        return loading ? undefined : openFromSong('album', track);
       case 'n':
         return void next();
       case 'p':

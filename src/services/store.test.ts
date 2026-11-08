@@ -49,3 +49,11 @@ test("an unreadable or foreign file starts fresh, and bad tracks are dropped", (
     searches: ["ok"],
   })
 })
+
+test("older files without artist and album ids still load, and new ids are kept", () => {
+  const path = join(dir, "ids", "session.json")
+  mkdirSync(join(dir, "ids"))
+  const linked: Track = { ...song, id: "s2", artistId: "UCband", albumId: "MPRalbum" }
+  writeFileSync(path, JSON.stringify({ version: 1, volume: 40, current: song, queue: [linked] }))
+  expect(new FileSessionStore(path).saved).toMatchObject({ current: song, queue: [linked] })
+})

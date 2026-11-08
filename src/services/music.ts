@@ -1,4 +1,7 @@
 import { Innertube, Log, YTNodes } from "youtubei.js"
+import type { YTMusic } from "youtubei.js"
+
+type Album = YTMusic.Album
 
 export interface Track {
   id: string
@@ -7,6 +10,10 @@ export interface Track {
   album: string
   duration: number
   cover: string
+  // Where the song's artist and album pages live. Songs saved by older versions don't have them,
+  // and YouTube Music doesn't link every song to an album.
+  artistId?: string
+  albumId?: string
 }
 
 // A mood or genre from YouTube Music's "Moods & genres" page, e.g. Chill or Hip-hop.
@@ -23,6 +30,14 @@ export interface PlaylistInfo {
   cover: string
 }
 
+// One row of an artist page: a song to play or an album to open, under a section like "Top songs".
+export type ArtistItem = { section: string; track: Track } | { section: string; album: PlaylistInfo }
+
+export interface ArtistPage {
+  name: string
+  items: ArtistItem[]
+}
+
 export interface MusicSource {
   search(query: string): Promise<Track[]>
   // How YouTube Music would complete a half-typed search, e.g. "daft p" → "daft punk get lucky".
@@ -33,9 +48,15 @@ export interface MusicSource {
   // Playlists YouTube Music's editors made for a category.
   playlists(categoryId: string): Promise<PlaylistInfo[]>
   playlist(playlistId: string): Promise<Track[]>
+  artist(artistId: string): Promise<ArtistPage>
+  album(albumId: string): Promise<Track[]>
 }
 
 const joinNames = (artists?: { name: string }[]) => artists?.map((a) => a.name).join(", ") ?? ""
+
+// A song can have several artists; its artist page is the first one that links to a channel.
+const firstArtistId = (artists?: { channel_id?: string }[]) =>
+  artists?.find((a) => a.channel_id?.startsWith("UC"))?.channel_id
 
 // Thumbnails come largest first, but search results only go up to 120px. YouTube Music image
 // URLs end in a size like "=w120-h120", so rewriting it fetches a sharper cover.
@@ -54,9 +75,49 @@ const listItemTrack = (item: YTNodes.MusicResponsiveListItem): Track[] =>
           album: item.album?.name ?? "",
           duration: item.duration?.seconds ?? 0,
           cover: coverUrl(item.thumbnail?.contents),
+          artistId: firstArtistId(item.artists) ?? firstArtistId(item.authors),
+          albumId: item.album?.id,
         },
       ]
     : []
+
+interface AlbumInfo {
+  title: string
+  artists: string
+  artistId?: string
+  cover: string
+}
+
+const albumInfo = (header: Album["header"]): AlbumInfo => {
+  if (header?.is(YTNodes.MusicResponsiveHeader)) {
+    const browseId = header.strapline_text_one.endpoint?.payload?.browseId
+    return {
+      title: header.title.toString(),
+      artists: header.strapline_text_one.toString(),
+      artistId: typeof browseId === "string" && browseId.startsWith("UC") ? browseId : undefined,
+      cover: coverUrl(header.thumbnail?.contents),
+    }
+  }
+  if (header?.is(YTNodes.MusicDetailHeader))
+    return {
+      title: header.title.toString(),
+      artists: header.author?.name ?? "",
+      artistId: header.author?.channel_id,
+      cover: coverUrl(header.thumbnails),
+    }
+  return { title: "", artists: "", cover: "" }
+}
+
+// Album rows leave out the cover and album, and sometimes the artist, because the album's header
+// shows them. A row's own artist wins: on a compilation the header only says "Various Artists".
+export const inheritFromAlbum = (track: Track, albumId: string, album: AlbumInfo): Track => ({
+  ...track,
+  artists: track.artists || album.artists,
+  artistId: track.artistId ?? album.artistId,
+  album: track.album || album.title,
+  albumId,
+  cover: track.cover || album.cover,
+})
 
 // Editor-made playlists have ids starting with RDCLAK5uy; the rest of a category page is
 // community playlists, albums and videos.
@@ -99,6 +160,8 @@ export function createYouTubeMusic(): MusicSource {
                 album: item.album?.name ?? "",
                 duration: item.duration.seconds,
                 cover: coverUrl(item.thumbnail),
+                artistId: firstArtistId(item.artists),
+                albumId: item.album?.id,
               },
             ]
           : [],
@@ -149,6 +212,48 @@ export function createYouTubeMusic(): MusicSource {
       return (playlist.items ?? []).flatMap((item) =>
         item.is(YTNodes.MusicResponsiveListItem) ? listItemTrack(item) : [],
       )
+    },
+
+    async artist(artistId) {
+      const page = await (await yt()).music.getArtist(artistId)
+      const name = page.header?.title?.toString() ?? ""
+      const items = page.sections.flatMap((shelf): ArtistItem[] => {
+        if (shelf.is(YTNodes.MusicShelf)) {
+          const section = shelf.title.toString()
+          return shelf.contents.flatMap((item) =>
+            item.item_type === "song" || item.item_type === "video"
+              ? listItemTrack(item).map((track) => ({
+                  section,
+                  track: { ...track, artists: track.artists || name, artistId: track.artistId ?? artistId },
+                }))
+              : [],
+          )
+        }
+        // The other carousels are videos, playlists and similar artists; only albums open here.
+        const section = shelf.header?.is(YTNodes.MusicCarouselShelfBasicHeader) ? shelf.header.title.toString() : ""
+        return shelf.contents.flatMap((item) =>
+          item.is(YTNodes.MusicTwoRowItem) && item.item_type === "album" && item.id?.startsWith("MPR")
+            ? [
+                {
+                  section,
+                  album: {
+                    id: item.id,
+                    title: item.title.toString(),
+                    subtitle: item.subtitle?.toString() ?? "",
+                    cover: coverUrl(item.thumbnail),
+                  },
+                },
+              ]
+            : [],
+        )
+      })
+      return { name, items }
+    },
+
+    async album(albumId) {
+      const page = await (await yt()).music.getAlbum(albumId)
+      const info = albumInfo(page.header)
+      return page.contents.flatMap((item) => listItemTrack(item).map((t) => inheritFromAlbum(t, albumId, info)))
     },
   }
 }
