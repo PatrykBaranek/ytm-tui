@@ -27,7 +27,7 @@ export function TrackList({
   const first = scrollStart(selected, rows, tracks.length);
   const marker = numbered ? String(tracks.length).length + 1 : 2;
   const time = 8;
-  const rest = Math.max(0, width - marker - time);
+  const rest = Math.max(0, width - 1 - marker - time);
   // Narrow panes (the queue) only have room for titles.
   const showArtist = rest >= 30;
   const titleWidth = showArtist
@@ -49,17 +49,21 @@ export function TrackList({
           <box
             key={`${track.id}-${index}`}
             height={1}
+            flexShrink={0}
             backgroundColor={
-              isSelected && focused ? colors.rowSelected : 'transparent'
+              isSelected
+                ? focused
+                  ? colors.rowSelected
+                  : colors.rowSelectedDim
+                : 'transparent'
             }
           >
             <text>
+              <span fg={focused ? colors.accent : colors.muted}>
+                {isSelected ? '▌' : ' '}
+              </span>
               <span fg={isPlaying ? colors.playing : colors.muted}>
-                {numbered
-                  ? fit(String(index + 1), marker)
-                  : isPlaying
-                    ? '▶ '
-                    : '  '}
+                {fit(isPlaying ? '▶' : numbered ? String(index + 1) : '', marker)}
               </span>
               <span fg={isPlaying ? colors.playing : colors.fg}>
                 {column(track.title, titleWidth)}
@@ -67,7 +71,7 @@ export function TrackList({
               <span fg={colors.muted}>
                 {column(track.artists, artistWidth)}
                 {column(track.album, albumWidth)}
-                {formatTime(track.duration).padStart(time)}
+                {(track.duration > 0 ? formatTime(track.duration) : '').padStart(time)}
               </span>
             </text>
           </box>

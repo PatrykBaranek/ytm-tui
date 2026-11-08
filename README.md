@@ -2,22 +2,24 @@
 
 [![CI](https://github.com/PatrykBaranek/ytm-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/PatrykBaranek/ytm-tui/actions/workflows/ci.yml)
 
-A small terminal client for YouTube Music: browse playlists by mood and genre, search, play,
-queue, and autoplay similar songs.
+A small terminal client for YouTube Music: browse what's new and trending, playlists by mood and
+genre, and artist and album pages; search, play, queue, and autoplay similar songs.
 Built with [OpenTUI](https://opentui.com) + React on Bun.
 
-![ytm-tui: the splash, browsing Chill playlists, a search with suggestions, a song playing with the glow taking its cover's colors, and the key help](docs/demo.gif)
+![ytm-tui: the splash, browsing Chill playlists, home's tabs with a big cover, a search with suggestions, a song playing with the glow taking its cover's colors, an artist page, and the key help](docs/demo.gif)
 
 ## Install
 
 Needs [Bun](https://bun.sh) 1.3.14 or newer, plus `mpv` and `yt-dlp` on your PATH. Linux and macOS.
 
-```bash
-bun add -g ytm-tui      # or: npm i -g ytm-tui (Bun must still be installed)
-ytm                     # or the full name, ytm-tui
+ytm-tui isn't on npm yet, so run it from a checkout:
 
-bunx ytm-tui            # run once without installing
-ytm --help              # options and environment variables
+```bash
+git clone https://github.com/PatrykBaranek/ytm-tui.git
+cd ytm-tui
+bun install
+bun start
+bun src/index.tsx --help   # options and environment variables
 ```
 
 ## Development
@@ -40,18 +42,20 @@ builds first (`prepublishOnly`, `prepack`).
 |---|---|
 | `/` | Search: suggestions appear as you type, recent searches when the box is empty; `↑/↓` picks one, enter runs it, esc goes back to the list |
 | `↑/↓` or `j/k` | Move selection |
-| `enter` | Open a mood, genre, playlist or album; play a song (in a playlist or album, the rest of it becomes up next) |
-| `esc` / `backspace` | Back to the previous list |
+| `pgup` / `pgdn` | Move a page |
+| `←/→` or `h/l` | Switch tab on home; on search and artist pages, move to the next section |
+| `enter` | Open what's selected; play a song (in a playlist or album, the rest of it becomes up next) |
+| `esc` / `backspace` | Back to the previous page |
 | `a` | Add the selected song to the up-next queue |
 | `A` | Add the whole playlist to the queue |
 | `s` | Shuffle the playlist and play it |
-| `g` | Open the selected song's artist (in the list or the queue) |
-| `b` | Open the selected song's album (in the list or the queue) |
-| `tab` | Switch between the list and the queue |
+| `g` | Open the selected song's artist (on a page or in the queue) |
+| `b` | Open the selected song's album (on a page or in the queue) |
+| `tab` | Switch between the page and the queue (on home, or below 100 columns, the queue takes over from the list) |
 | `d` / `x` / `delete` | Remove from queue |
 | `space` | Pause / resume |
 | `n` / `p` | Next / previous (previous restarts the song if more than 5s in) |
-| `←/→` | Seek 10s |
+| `,` / `.` | Seek 10s back / forward |
 | `+` / `-` | Volume |
 | `r` | Toggle autoplay (YouTube Music radio when the queue runs out) |
 | `?` | Show every key |
@@ -63,34 +67,33 @@ Any key skips the splash screen on launch; `YTM_NO_SPLASH=1` turns it off.
 
 Volume, autoplay, the current song, up next, the last 50 played songs and your last 20 searches are saved to
 `~/.local/state/ytm-tui/session.json` (or `$XDG_STATE_HOME/ytm-tui`). On the next start the last
-song is back in now playing, stopped; space plays it. The songs you played are under
-"Recently played" at the top of browse. Delete the file to start fresh.
+song is back in the player, stopped; space plays it. The songs you played are on home's Recent
+tab. Delete the file to start fresh.
 
 ## Browse
 
-The app opens on YouTube Music's moods & genres: 12 moods (Chill, Focus, Workout...) and
-24 genres (Hip-hop, Rock, Jazz...). Each one lists the playlists YouTube Music's editors made for
-it; community playlists are left out. Status messages show in the bottom line for a few seconds,
-in place of the key help.
+The app opens on home: one big cover of what's selected, beside one list at a time. `←/→` switches
+between its tabs: **Recent**, the songs you played; **Moods** and genres (Chill, Focus, Hip-hop,
+Rock...); **For you** (YouTube Music's quick picks); **New** albums and singles; and **Trending**.
+A mood or genre lists the playlists YouTube Music's editors made for it; community playlists are
+left out. Until you've played something there's no Recent tab, so home opens on Moods. The app isn't
+signed in, so For you, New and Trending are YouTube Music's general picks, not based on what you
+listen to.
 
-## Artists and albums
-
-Press `g` on a song, in the list or the queue, for its artist's top songs, albums and singles; `b` for
-its album. Both open in the left pane, so esc goes back. A song with several artists opens the first
-one YouTube Music links to a page. Songs saved by an older version, and some artist top songs, have
-no link to follow; the status line says so.
+A search lists the closest artists and albums above the songs, and starts on the top song, so enter
+still plays it. Status messages show in the bottom line for a few seconds, in place of the key help.
 
 ## How it works
 
-- `src/services/music.ts`: search, "up next" radio, moods & genres and playlists through [youtubei.js](https://github.com/LuanRT/YouTube.js) (YouTube's internal API, no API key).
+- `src/services/music.ts`: search, "up next" radio, moods & genres, playlists, artist and album pages and home's tabs through [youtubei.js](https://github.com/LuanRT/YouTube.js) (YouTube's internal API, no API key).
 - `src/services/player.ts`: YouTube's stream URLs return 403 when mpv fetches them directly, so yt-dlp downloads
   the audio into memory (`src/services/download.ts`) and the app feeds it to mpv's stdin. Pause, seek, volume
   and position go over mpv's JSON IPC socket.
 - Starting a song: yt-dlp normally takes 7-8 seconds before the first byte, nearly all of it setup. It asks as
   YouTube's visionOS app first, which takes about a second, and falls back to its defaults if YouTube refuses.
   While a song plays, the next one in up next downloads (a few MB), so it starts right away.
-- `src/app.tsx`: layout, focus and keys; playback rules live in `src/hooks/use-playback.ts`, the list you
-  browse (a stack that esc pops) in `src/hooks/use-navigation.ts`, the panels in `src/components/`. `src/index.tsx` makes sure mpv and yt-dlp are killed whenever the app exits.
+- `src/app.tsx`: layout, focus and keys; playback rules live in `src/hooks/use-playback.ts`, the pages you
+  browse (a stack that esc pops) in `src/hooks/use-navigation.ts`, what they look like in `src/components/`. `src/index.tsx` makes sure mpv and yt-dlp are killed whenever the app exits.
 
 Extra mpv flags go in `YTM_MPV_ARGS`, e.g. `YTM_MPV_ARGS="--audio-device=pipewire/my-sink" bun start`.
 
@@ -104,8 +107,10 @@ splash logo (`src/components/logo.ts`) appears behind a glint.
 
 ## Cover art
 
-The box above the queue shows the playing song's cover, or the selected song's or playlist's
-cover while nothing plays. OpenTUI picks how to draw it: real pixels on terminals with kitty graphics
+On home, one big cover shows what you've selected; a mood has no cover, so its name is drawn large
+instead. On other pages, the column beside the list shows the cover and details of what you've
+selected: a song, an album, an artist or a playlist. On a row with no picture of its own, it shows
+the song that's playing. OpenTUI picks how to draw covers: real pixels on terminals with kitty graphics
 (Ghostty, kitty, WezTerm), colored block characters everywhere else and inside tmux.
 If it guesses wrong (some multiplexers hide what the terminal supports), force it:
 

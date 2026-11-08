@@ -18,12 +18,17 @@ playback by piping yt-dlp into mpv. Use Bun, not Node (`bun install`, `bunx`, `b
 - `src/services/`: the outside world, no React. `music.ts` (`MusicSource`), `player.ts` (`Player`),
   `download.ts` (one song's audio, via yt-dlp), `store.ts` (the saved session)
 - `src/hooks/`: `use-playback.ts` holds the queue, history and autoplay rules; `use-navigation.ts`
-  the stack of lists the left pane shows (moods & genres › playlists › songs, artist and album
+  the stack of pages the main area shows (home › a mood's playlists › songs, artist and album
   pages, or search results);
   `use-search-suggestions.ts` the list under the search box
-- `src/components/`: panels, plus custom renderables registered with `extend()`: `ambient.ts` (the
-  glow) and `logo.ts` (the splash logo)
-- `src/lib/`: pure helpers (`format`, `palette`, `util`); tests sit next to the file they cover
+- `src/components/`: the parts of the screen: `top-bar` (the trail, or home's tabs), `home-page`
+  (a big cover beside one tab's list; it has no side column), `browse-pane` (every other page),
+  `section-page` (a list in named sections: search, an artist, a home tab), `side-panel` (cover,
+  details and queue), `now-playing`; plus custom renderables registered with `extend()`: `ambient.ts` (the glow) and
+  `logo.ts` (the splash logo)
+- `src/lib/`: pure helpers (`format`, `palette`, `util`, `browse` for the rows of sectioned pages,
+  `page-layout` for where those rows go and where an arrow key lands); tests sit next to the file
+  they cover
 
 ## Rules learned the hard way
 
@@ -42,6 +47,11 @@ playback by piping yt-dlp into mpv. Use Bun, not Node (`bun install`, `bunx`, `b
   alpha, never opaque backgrounds. The exception is anything drawn over other content (key help,
   search suggestions): a background with any alpha keeps the characters below, so use
   `colors.overlay`, which is opaque.
+- Sectioned pages have one source of truth for where rows are: `pageLayout`. Draw from it and move
+  with `moveInPage`, computed from the ref'd view inside key handlers, so the screen and the arrow
+  keys can't disagree.
+- `border={false}` isn't enough to turn a box's border off if it's also given a `borderColor`; leave
+  both out.
 - OpenTUI props are flat (`<box flexGrow={1}>`, no `style` object). `<input onSubmit>` is typed
   `string | SubmitEvent` because its props merge with React DOM's.
 - Don't mark renderables `live`: that redraws the whole UI at 30 fps. Animate with a timer that
@@ -55,7 +65,7 @@ Run inside tmux so the screen can be captured, and keep audio off:
 
 ```bash
 tmux new-session -d -s ytm -x 120 -y 40 "YTM_MPV_ARGS=--ao=null YTM_NO_SPLASH=1 bun start"
-# The app opens on the browse list: "/" first, sent on its own, then the query.
+# The app opens on home: "/" first, sent on its own, then the query.
 tmux send-keys -t ytm /; sleep 0.3; tmux send-keys -t ytm "daft punk" Enter
 sleep 6; tmux capture-pane -p -t ytm
 ```

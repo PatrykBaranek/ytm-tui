@@ -1,70 +1,67 @@
-import type { View } from '../hooks/use-navigation';
-import { fit } from '../lib/format';
+import type { ImageRenderProtocol } from '@opentui/core';
+import { isSectioned, type View } from '../hooks/use-navigation';
 import { colors } from '../theme';
 import { ItemList } from './item-list';
-import { Pane } from './pane';
+import { PageHeaderView, pageHeaderRows } from './page-header';
+import { SectionPage } from './section-page';
 import { TrackList } from './track-list';
 
-// "moods & genres › Rock › Classic Rock", dropping the oldest steps when it doesn't fit.
-function breadcrumb(stack: View[], width: number) {
-  const titles = stack.map((view) => view.title);
-  for (let skip = 0; skip < titles.length - 1; skip++) {
-    const text = [...(skip ? ['…'] : []), ...titles.slice(skip)].join(' › ');
-    if (Bun.stringWidth(text) <= width) return text;
-  }
-  return fit(titles.at(-1) ?? '', width).trimEnd();
-}
-
 const emptyText: Record<View['kind'], string> = {
-  categories: 'No moods or genres found.',
+  home: 'Nothing to show yet.',
   playlists: 'No playlists here.',
   playlist: 'Nothing here yet.',
   artist: 'No songs or albums found for this artist.',
-  search: 'No songs found.',
+  search: 'No results.',
 };
 
 interface BrowsePaneProps {
-  stack: View[];
+  view: View;
   focused: boolean;
   width: number;
   rows: number;
   playingId?: string;
+  coverProtocol?: ImageRenderProtocol;
 }
 
-// The left pane: whatever view is on top of the navigation stack.
+// The main area: whatever view is on top of the navigation stack.
 export function BrowsePane({
-  stack,
+  view,
   focused,
   width,
   rows,
   playingId,
+  coverProtocol,
 }: BrowsePaneProps) {
-  const view = stack.at(-1)!;
-  const inner = width - 4;
+  const headerRows = pageHeaderRows(view.header, rows);
+  const listRows = Math.max(1, rows - headerRows);
 
   return (
-    <Pane title={breadcrumb(stack, inner - 2)} width={width} focused={focused}>
+    <box width={width} height={rows} flexDirection="column" flexShrink={0}>
+      {view.header && (
+        <PageHeaderView
+          header={view.header}
+          width={width}
+          rows={rows}
+          loud={view.kind === 'artist'}
+          protocol={coverProtocol}
+        />
+      )}
       {view.status === 'loading' ? (
-        <text fg={colors.muted}>Loading...</text>
+        <text fg={colors.muted}> Loading...</text>
       ) : view.status === 'error' ? (
         <text fg={colors.error}>
+          {' '}
           Couldn't load {view.title}: {view.error}. Press enter to retry.
         </text>
       ) : view.items.length === 0 ? (
-        <text fg={colors.muted}>{emptyText[view.kind]}</text>
-      ) : view.kind === 'categories' ? (
-        <ItemList
-          // The group name ("Moods & moments", "Genres") only labels the first row of its group.
-          items={view.items.map((category, i) => ({
-            key: category.id,
-            label: category.title,
-            detail:
-              view.items[i - 1]?.group === category.group ? '' : category.group,
-          }))}
-          selected={view.selected}
+        <text fg={colors.muted}> {emptyText[view.kind]}</text>
+      ) : isSectioned(view) ? (
+        <SectionPage
+          view={view}
+          width={width}
+          rows={listRows}
           focused={focused}
-          rows={rows}
-          width={inner}
+          playingId={playingId}
         />
       ) : view.kind === 'playlists' ? (
         <ItemList
@@ -75,38 +72,22 @@ export function BrowsePane({
           }))}
           selected={view.selected}
           focused={focused}
-          rows={rows}
-          width={inner}
-        />
-      ) : view.kind === 'artist' ? (
-        <ItemList
-          // The section name labels the first row of its section, as groups do on moods & genres.
-          items={view.items.map((item, i) => ({
-            key: `${i}-${'track' in item ? item.track.id : item.album.id}`,
-            label: 'track' in item ? item.track.title : item.album.title,
-            detail: [
-              view.items[i - 1]?.section === item.section ? '' : item.section,
-              'album' in item ? item.album.subtitle : '',
-            ]
-              .filter(Boolean)
-              .join(' · '),
-          }))}
-          selected={view.selected}
-          focused={focused}
-          rows={rows}
-          width={inner}
+          rows={listRows}
+          width={width}
         />
       ) : (
         <TrackList
           tracks={view.items}
           selected={view.selected}
           focused={focused}
-          rows={rows}
-          width={inner}
+          rows={listRows}
+          width={width}
           playingId={playingId}
-          showAlbum={width >= 80}
+          // Every row of an album shares its album, and tracks have an order worth showing.
+          numbered={!!view.header}
+          showAlbum={width >= 76 && !view.header}
         />
       )}
-    </Pane>
+    </box>
   );
 }

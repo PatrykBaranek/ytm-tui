@@ -14,14 +14,7 @@ export function Cover({ source, height, protocol = 'auto' }: CoverProps) {
   const [failed, setFailed] = useState<string | null>(null);
 
   return (
-    <box
-      title="cover"
-      height={height}
-      border
-      borderColor={colors.border}
-      alignItems="center"
-      justifyContent="center"
-    >
+    <box height={height} alignItems="center" justifyContent="center" flexShrink={0}>
       {source && source !== failed ? (
         <image
           source={source}

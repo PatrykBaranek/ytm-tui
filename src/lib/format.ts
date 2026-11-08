@@ -27,6 +27,25 @@ export function fit(text: string, width: number) {
   return out + "…" + " ".repeat(width - 1 - used)
 }
 
+// Breaks text at spaces into at most `maxLines` lines of `width` columns. Text that doesn't fit
+// ends in an ellipsis on the last line.
+export function wrap(text: string, width: number, maxLines: number) {
+  const lines: string[] = []
+  if (width <= 0) return lines
+  const words = text.split(/\s+/).filter(Boolean)
+  let i = 0
+  while (i < words.length && lines.length < maxLines) {
+    if (lines.length === maxLines - 1) {
+      lines.push(fit(words.slice(i).join(" "), width).trimEnd())
+      break
+    }
+    let line = words[i++]!
+    while (i < words.length && Bun.stringWidth(`${line} ${words[i]}`) <= width) line += ` ${words[i++]}`
+    lines.push(fit(line, width).trimEnd())
+  }
+  return lines
+}
+
 export function progressBar(position: number, duration: number, width: number) {
   if (width <= 0) return ""
   const ratio = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0

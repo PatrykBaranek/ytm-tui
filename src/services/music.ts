@@ -2,6 +2,7 @@ import { Innertube, Log, YTNodes } from "youtubei.js"
 import type { YTMusic } from "youtubei.js"
 
 type Album = YTMusic.Album
+type Artist = YTMusic.Artist
 
 export interface Track {
   id: string
@@ -30,16 +31,54 @@ export interface PlaylistInfo {
   cover: string
 }
 
-// One row of an artist page: a song to play or an album to open, under a section like "Top songs".
-export type ArtistItem = { section: string; track: Track } | { section: string; album: PlaylistInfo }
+export interface ArtistInfo {
+  id: string
+  name: string
+  subtitle: string // "67.4M monthly audience"
+  cover: string
+}
+
+// One row of a page made of named sections (home, search, an artist): something to play or open.
+export type BrowseItem = { section: string } & (
+  | { track: Track }
+  | { album: PlaylistInfo }
+  | { artist: ArtistInfo }
+  | { category: Category }
+)
+
+// What sits above the rows of an artist or album page.
+export interface PageHeader {
+  title: string
+  subtitle: string // an album's artists
+  text: string // an artist's biography, or an album's year and length
+  image: string // an artist's banner, "" for none
+}
 
 export interface ArtistPage {
-  name: string
-  items: ArtistItem[]
+  header: PageHeader
+  items: BrowseItem[]
+}
+
+export interface AlbumPage {
+  header: PageHeader
+  tracks: Track[]
+}
+
+export interface SearchResults {
+  songs: Track[]
+  artists: ArtistInfo[]
+  albums: PlaylistInfo[]
+}
+
+// What YouTube Music is featuring right now, for the home page.
+export interface Explore {
+  quickPicks: Track[]
+  albums: PlaylistInfo[]
+  trending: Track[]
 }
 
 export interface MusicSource {
-  search(query: string): Promise<Track[]>
+  search(query: string): Promise<SearchResults>
   // How YouTube Music would complete a half-typed search, e.g. "daft p" → "daft punk get lucky".
   suggestions(query: string): Promise<string[]>
   // Songs YouTube Music would play after this one; used for autoplay when the queue runs out.
@@ -49,7 +88,8 @@ export interface MusicSource {
   playlists(categoryId: string): Promise<PlaylistInfo[]>
   playlist(playlistId: string): Promise<Track[]>
   artist(artistId: string): Promise<ArtistPage>
-  album(albumId: string): Promise<Track[]>
+  album(albumId: string): Promise<AlbumPage>
+  explore(): Promise<Explore>
 }
 
 const joinNames = (artists?: { name: string }[]) => artists?.map((a) => a.name).join(", ") ?? ""
@@ -62,6 +102,10 @@ const firstArtistId = (artists?: { channel_id?: string }[]) =>
 // URLs end in a size like "=w120-h120", so rewriting it fetches a sharper cover.
 const coverUrl = (thumbnails?: { url: string }[]) =>
   thumbnails?.[0]?.url.replace(/=w\d+-h\d+/, "=w400-h400") ?? ""
+
+// A wide artist banner comes in a few sizes, largest first. The smallest is plenty for a few rows
+// of a terminal, and `coverUrl` would crop it square.
+const bannerUrl = (thumbnails?: { url: string }[]) => thumbnails?.at(-1)?.url ?? ""
 
 // Search results and playlist rows share one shape. Music videos in playlists list their
 // artists as `authors`; rows without an id are songs that are no longer available.
@@ -81,12 +125,63 @@ const listItemTrack = (item: YTNodes.MusicResponsiveListItem): Track[] =>
       ]
     : []
 
-interface AlbumInfo {
+const listItemArtist = (item: YTNodes.MusicResponsiveListItem): ArtistInfo[] =>
+  item.id?.startsWith("UC") && item.name
+    ? [
+        {
+          id: item.id,
+          name: item.name,
+          // Listed under "Artists" already, so "Artist • 67.4M monthly audience" loses its first word.
+          subtitle: item.subtitle?.toString().replace(/^Artist\s*•\s*/, "") ?? "",
+          cover: coverUrl(item.thumbnail?.contents),
+        },
+      ]
+    : []
+
+const listItemAlbum = (item: YTNodes.MusicResponsiveListItem): PlaylistInfo[] =>
+  item.id?.startsWith("MPR") && item.title
+    ? [
+        {
+          id: item.id,
+          title: item.title,
+          subtitle: [item.author?.name, item.year].filter(Boolean).join(" • "),
+          cover: coverUrl(item.thumbnail?.contents),
+        },
+      ]
+    : []
+
+const twoRowAlbum = (item: YTNodes.MusicTwoRowItem): PlaylistInfo[] =>
+  item.item_type === "album" && item.id?.startsWith("MPR")
+    ? [
+        {
+          id: item.id,
+          title: item.title.toString(),
+          subtitle: item.subtitle?.toString() ?? "",
+          cover: coverUrl(item.thumbnail),
+        },
+      ]
+    : []
+
+const artistHeader = (header: Artist["header"]): PageHeader => {
+  const title = header?.title?.toString() ?? ""
+  if (header?.is(YTNodes.MusicImmersiveHeader))
+    return { title, subtitle: "", text: header.description.toString(), image: bannerUrl(header.thumbnail?.contents) }
+  if (header?.is(YTNodes.MusicVisualHeader)) return { title, subtitle: "", text: "", image: bannerUrl(header.thumbnail) }
+  return { title, subtitle: "", text: "", image: "" }
+}
+
+interface AlbumLinks {
   title: string
   artists: string
   artistId?: string
   cover: string
 }
+
+interface AlbumInfo extends AlbumLinks {
+  about: string // "Album • 2013 · 13 songs • 1 hour, 14 minutes"
+}
+
+const joinAbout = (...parts: { toString(): string }[]) => parts.map(String).filter(Boolean).join(" · ")
 
 const albumInfo = (header: Album["header"]): AlbumInfo => {
   if (header?.is(YTNodes.MusicResponsiveHeader)) {
@@ -96,6 +191,7 @@ const albumInfo = (header: Album["header"]): AlbumInfo => {
       artists: header.strapline_text_one.toString(),
       artistId: typeof browseId === "string" && browseId.startsWith("UC") ? browseId : undefined,
       cover: coverUrl(header.thumbnail?.contents),
+      about: joinAbout(header.subtitle, header.second_subtitle),
     }
   }
   if (header?.is(YTNodes.MusicDetailHeader))
@@ -104,13 +200,14 @@ const albumInfo = (header: Album["header"]): AlbumInfo => {
       artists: header.author?.name ?? "",
       artistId: header.author?.channel_id,
       cover: coverUrl(header.thumbnails),
+      about: joinAbout(header.subtitle, header.second_subtitle),
     }
-  return { title: "", artists: "", cover: "" }
+  return { title: "", artists: "", cover: "", about: "" }
 }
 
 // Album rows leave out the cover and album, and sometimes the artist, because the album's header
 // shows them. A row's own artist wins: on a compilation the header only says "Various Artists".
-export const inheritFromAlbum = (track: Track, albumId: string, album: AlbumInfo): Track => ({
+export const inheritFromAlbum = (track: Track, albumId: string, album: AlbumLinks): Track => ({
   ...track,
   artists: track.artists || album.artists,
   artistId: track.artistId ?? album.artistId,
@@ -136,8 +233,18 @@ export function createYouTubeMusic(): MusicSource {
 
   return {
     async search(query) {
-      const results = await (await yt()).music.search(query, { type: "song" })
-      return (results.songs?.contents ?? []).flatMap(listItemTrack)
+      const { music } = await yt()
+      // Songs are what a search is for; artists and albums shouldn't be able to fail it.
+      const [songs, artists, albums] = await Promise.all([
+        music.search(query, { type: "song" }),
+        music.search(query, { type: "artist" }).catch(() => null),
+        music.search(query, { type: "album" }).catch(() => null),
+      ])
+      return {
+        songs: (songs.songs?.contents ?? []).flatMap(listItemTrack),
+        artists: (artists?.artists?.contents ?? []).flatMap(listItemArtist),
+        albums: (albums?.albums?.contents ?? []).flatMap(listItemAlbum),
+      }
     },
 
     async suggestions(query) {
@@ -216,8 +323,9 @@ export function createYouTubeMusic(): MusicSource {
 
     async artist(artistId) {
       const page = await (await yt()).music.getArtist(artistId)
-      const name = page.header?.title?.toString() ?? ""
-      const items = page.sections.flatMap((shelf): ArtistItem[] => {
+      const header = artistHeader(page.header)
+      const name = header.title
+      const items = page.sections.flatMap((shelf): BrowseItem[] => {
         if (shelf.is(YTNodes.MusicShelf)) {
           const section = shelf.title.toString()
           return shelf.contents.flatMap((item) =>
@@ -232,28 +340,38 @@ export function createYouTubeMusic(): MusicSource {
         // The other carousels are videos, playlists and similar artists; only albums open here.
         const section = shelf.header?.is(YTNodes.MusicCarouselShelfBasicHeader) ? shelf.header.title.toString() : ""
         return shelf.contents.flatMap((item) =>
-          item.is(YTNodes.MusicTwoRowItem) && item.item_type === "album" && item.id?.startsWith("MPR")
-            ? [
-                {
-                  section,
-                  album: {
-                    id: item.id,
-                    title: item.title.toString(),
-                    subtitle: item.subtitle?.toString() ?? "",
-                    cover: coverUrl(item.thumbnail),
-                  },
-                },
-              ]
-            : [],
+          item.is(YTNodes.MusicTwoRowItem) ? twoRowAlbum(item).map((album) => ({ section, album })) : [],
         )
       })
-      return { name, items }
+      return { header, items }
     },
 
     async album(albumId) {
       const page = await (await yt()).music.getAlbum(albumId)
       const info = albumInfo(page.header)
-      return page.contents.flatMap((item) => listItemTrack(item).map((t) => inheritFromAlbum(t, albumId, info)))
+      return {
+        header: { title: info.title, subtitle: info.artists, text: info.about, image: "" },
+        tracks: page.contents.flatMap((item) => listItemTrack(item).map((t) => inheritFromAlbum(t, albumId, info))),
+      }
+    },
+
+    async explore() {
+      const { music } = await yt()
+      // Home is still worth showing with whichever of these answers.
+      const [explore, feed] = await Promise.all([
+        music.getExplore().catch(() => null),
+        music.getHomeFeed().catch(() => null),
+      ])
+      // By the kind of row, because the shelves' titles depend on the language.
+      const rows = (explore?.sections ?? []).flatMap((shelf) => [...shelf.contents])
+      const picks = (feed?.sections ?? []).flatMap((shelf) =>
+        shelf.is(YTNodes.MusicCarouselShelf) ? [...shelf.contents] : [],
+      )
+      return {
+        quickPicks: picks.flatMap((item) => (item.is(YTNodes.MusicResponsiveListItem) ? listItemTrack(item) : [])),
+        albums: rows.flatMap((item) => (item.is(YTNodes.MusicTwoRowItem) ? twoRowAlbum(item) : [])),
+        trending: rows.flatMap((item) => (item.is(YTNodes.MusicResponsiveListItem) ? listItemTrack(item) : [])),
+      }
     },
   }
 }

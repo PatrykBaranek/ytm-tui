@@ -24,14 +24,19 @@ Type "clear" Enter
 Show
 
 Type "ytm" Sleep 300ms Enter
-# The splash, then moods & genres.
+# The splash, then home. A fresh session has no Recent tab, so it opens on Moods.
 Sleep 3.5s
 
-# Chill (under Recently played) → its playlists → one of them, then back. The recorder drops
-# frames while the glow redraws, so pauses here are longer than they look in the GIF.
-Down Sleep 500ms Enter Sleep 3s
+# Chill → its playlists → one of them, then back. The recorder drops frames while the glow
+# redraws, so pauses here are longer than they look in the GIF.
+Enter Sleep 3s
 Down Sleep 500ms Down Sleep 500ms Enter Sleep 3.5s
 Escape Sleep 1.2s Escape Sleep 1.5s
+
+# The other tabs: the big cover follows the selection.
+Right Sleep 2.5s
+Down Sleep 1.5s
+Right Sleep 2.5s
 
 # Search with a suggestion, and play a song with a colorful cover so the glow shows.
 Type "/" Sleep 400ms
@@ -39,6 +44,10 @@ Type "blinding l" Sleep 1.5s
 Down Sleep 600ms Enter Sleep 2.5s
 Enter Sleep 5s
 Down Sleep 300ms Type "a" Sleep 1.5s
+
+# Back up to the top song, and open its artist.
+Up Sleep 300ms
+Type "g" Sleep 3.5s
 
 # Every key.
 Type "?" Sleep 3s

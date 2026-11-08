@@ -7,9 +7,10 @@ const LEFT: Section[] = [
   [
     'Browse',
     [
-      ['enter', 'open a mood, genre, playlist or album'],
+      ['enter', 'open what is selected'],
       ['esc / backspace', 'back'],
       ['↑ ↓ / j k', 'move'],
+      ['← → / h l', 'switch tab or section'],
       ['pgup / pgdn', 'move a page'],
       ['/', 'search; ↑ ↓ picks a suggestion'],
       ['tab', 'switch between list and queue'],
@@ -41,7 +42,7 @@ const RIGHT: Section[] = [
     [
       ['space', 'pause / resume'],
       ['n / p', 'next / previous'],
-      ['← →', 'seek 10 seconds'],
+      [', / .', 'seek 10 seconds back / forward'],
       ['+ / -', 'volume'],
       ['r', 'autoplay on / off'],
     ],
